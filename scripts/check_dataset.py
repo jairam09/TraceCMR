@@ -4,6 +4,10 @@ Examples:
     # A synthetic phantom, to check your install works:
     python scripts/check_dataset.py --phantom --out data/checks
 
+    # One mouse from the UCL open dataset, at end-diastole and end-systole:
+    python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ED --out data/checks
+    python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ES --out data/checks
+
     # One ACDC subject (end-diastolic frame file + its ground truth):
     python scripts/check_dataset.py \
         --image data/acdc/patient001/patient001_frame01.nii.gz \
@@ -17,6 +21,7 @@ import argparse
 from pathlib import Path
 
 from mcmr import labels as L
+from mcmr.datasets import load_ucl
 from mcmr.io import load_nifti, sanity_check
 from mcmr.synthetic import ring_phantom
 from mcmr.viz import save_overlay
@@ -27,18 +32,24 @@ def main() -> None:
     p.add_argument("--image", type=Path, help="NIfTI image file")
     p.add_argument("--label", type=Path, help="NIfTI label file (optional)")
     p.add_argument("--label-map", default="standard", choices=sorted(L.LABEL_MAPS), help="dataset label convention")
-    p.add_argument("--frame", type=int, default=None, help="time frame for 4D cine files")
+    p.add_argument("--ucl", type=Path, help="a MouseN.h5 file from the UCL open mouse dataset")
+    p.add_argument("--frame", default=None, help="time frame: an index for 4D NIfTI, or ED / ES / index for --ucl")
     p.add_argument("--species", default="mouse", choices=["mouse", "human"])
     p.add_argument("--phantom", action="store_true", help="use a synthetic phantom instead of a file")
     p.add_argument("--out", type=Path, default=Path("data/checks"), help="folder for the overlay PNG")
     args = p.parse_args()
 
+    def as_frame(value):
+        return int(value) if value is not None and str(value).lstrip("-").isdigit() else value
+
     if args.phantom:
         ci = ring_phantom(noise_sd=0.05)
+    elif args.ucl is not None:
+        ci = load_ucl(args.ucl, as_frame(args.frame) or "ED")
     elif args.image is None:
-        p.error("give --image (and usually --label), or --phantom")
+        p.error("give --image (and usually --label), --ucl, or --phantom")
     else:
-        ci = load_nifti(args.image, args.label, label_map=args.label_map, frame=args.frame)
+        ci = load_nifti(args.image, args.label, label_map=args.label_map, frame=as_frame(args.frame))
 
     dx, dy, dz = ci.spacing
     print(f"subject      {ci.subject_id}")
@@ -59,7 +70,8 @@ def main() -> None:
         print(f"  - {w}")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    out = save_overlay(ci, args.out / f"{ci.subject_id}_overlay.png")
+    tag = f"_{ci.phase}" if ci.phase else ""
+    out = save_overlay(ci, args.out / f"{ci.subject_id}{tag}_overlay.png")
     print(f"overlay saved to {out}  <- open it and look at every slice")
 
 

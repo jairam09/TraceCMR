@@ -12,6 +12,7 @@ JOSS (and increasingly other journals) require a statement of which AI tools wer
 | --- | --- | --- | --- |
 | 2026-10-06 | Project plan and build guide | Drafting the phased plan; researching datasets, nnU-Net and JOSS requirements | Plan reviewed and adopted by author |
 | 2026-10-06 | Initial repo scaffold (`io.py`, `labels.py`, `synthetic.py`, `viz.py`, `check_dataset.py`, tests, docs) | Code generation and test scaffolding | To do: read every file, run tests, confirm overlays |
+| 2026-10-06 | UCL dataset loader (`datasets/ucl.py`), tests, dataset docs | Code generation; inspected a real UCL file to confirm format and ED/ES frames; spacing taken from the UCL paper | To do: read the loader, rerun the Mouse1 check yourself |
 
 ## Design decisions made by the author
 

@@ -9,9 +9,13 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Volumes are in µL (1 mm³ = 1 µL). Human results may also be shown in mL.
 - Labels use one internal scheme (`src/mcmr/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Loaders translate each dataset's numbers and refuse unknown values rather than guessing.
 
+## Dataset-specific facts (decided by the source, not by us)
+
+- UCL mouse data: spacing (0.1, 0.1, 1.0) mm taken from the paper because the files do not store it; trabeculae and papillary muscles are labeled as myocardium; ED/ES chosen as the labeled frames with largest/smallest blood pool.
+
 ## Volumes (Phase 2, to decide)
 
-- [ ] Papillary muscles: blood pool or myocardium? (Default: follow the source dataset; make it a setting.)
+- [ ] Papillary muscles: blood pool or myocardium? (Default: follow the source dataset; make it a setting. UCL counts them as myocardium.)
 - [ ] Basal slice inclusion rule.
 - [ ] Area from pixel counts vs from contour polygons (compare both against Segment).
 - [ ] Myocardial density for mass: 1.05 g/mL (standard).

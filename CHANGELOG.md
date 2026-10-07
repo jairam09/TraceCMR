@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.2] - 2026-10-06
+
+### Added
+- Loader for the UCL open mouse cardiac MRI dataset (`mcmr.datasets.load_ucl`), with ED/ES detection and the dataset's label scheme.
+- `check_dataset.py --ucl` option.
+- Tests for the UCL loader on synthetic UCL-format files, plus an optional real-data test (`MCMR_UCL_DATA`).
+- `h5py` dependency.
+
 ## [0.0.1] - 2026-10-06
 
 ### Added

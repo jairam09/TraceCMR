@@ -2,13 +2,14 @@
 
 Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening, and LGE scar quantification.
 
-> **Status: early development (v0.0.1).** Data loading, sanity checks and overlay figures work. Volumes, wall thickness and scar are in progress. Not yet validated for research use.
+> **Status: early development (v0.0.2).** Data loading, sanity checks and overlay figures work. Volumes, wall thickness and scar are in progress. Not yet validated for research use.
 
 ## What it will do
 
 | Output | Status |
 | --- | --- |
 | Load NIfTI images and labels, check spacing and labels, draw overlays | Working |
+| Load the UCL open mouse cardiac MRI dataset (130 mice), find ED/ES | Working |
 | EDV, ESV, stroke volume, EF, LV mass | Planned (v0.1) |
 | Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Planned (v0.2) |
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
@@ -32,7 +33,13 @@ Check that everything works on a synthetic phantom heart:
 python scripts/check_dataset.py --phantom --out data/checks
 ```
 
-Check a real dataset (example: one ACDC subject, which uses its own label numbers):
+Check a real mouse from the [UCL open dataset](docs/datasets.md#ucl-dataset):
+
+```bash
+python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ED --out data/checks
+```
+
+Check a human dataset (example: one ACDC subject, which uses its own label numbers):
 
 ```bash
 python scripts/check_dataset.py \

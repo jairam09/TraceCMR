@@ -24,7 +24,10 @@ NAMES = {
 # ACDC: 0 background, 1 RV cavity, 2 myocardium, 3 LV cavity.
 ACDC = {0: BACKGROUND, 1: RV_BLOODPOOL, 2: LV_MYOCARDIUM, 3: LV_BLOODPOOL}
 
+# UCL open mouse dataset (Shah et al., JCMR 2026): 0 background, 1 LV myocardium, 2 LV blood pool.
+UCL = {0: BACKGROUND, 1: LV_MYOCARDIUM, 2: LV_BLOODPOOL}
+
 # Already in the standard scheme (e.g. synthetic phantoms, our own exports).
 IDENTITY = {k: k for k in NAMES}
 
-LABEL_MAPS = {"acdc": ACDC, "standard": IDENTITY}
+LABEL_MAPS = {"acdc": ACDC, "ucl": UCL, "standard": IDENTITY}
