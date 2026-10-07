@@ -41,6 +41,22 @@ def test_labeled_frames_and_ed_es(tmp_path):
     assert find_ed_es(p) == {"ED": 4, "ES": 1}
 
 
+def test_partial_artifact_frame_is_not_chosen_as_es(tmp_path):
+    """Some UCL mice have extra frames contoured on only a few slices (Mouse91).
+
+    A frame with 2 of 5 slices contoured has the smallest blood pool but is not ES.
+    """
+    p = make_fake_ucl(tmp_path / "Mouse91.h5", ed_frame=0, es_frame=3)
+    with h5py.File(p, "r+") as f:
+        masks = f["Masks"][:]
+        masks[..., 4] = masks[..., 3]
+        masks[:, :, 2:, 4] = 0  # artifact frame: only 2 of 5 slices contoured
+        f["Masks"][...] = masks
+        del f["Frames_with_ROI"]
+        f["Frames_with_ROI"] = np.array([0, 3, 4], dtype=np.int32)
+    assert find_ed_es(p) == {"ED": 0, "ES": 3}
+
+
 def test_load_ed_remaps_labels_and_sets_spacing(tmp_path):
     p = make_fake_ucl(tmp_path / "Mouse1.h5")
     ci = load_ucl(p, "ED")

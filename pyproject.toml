@@ -23,9 +23,19 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7", "jupyter"]
 bruker = ["brukerapi"]
+app = ["napari[pyqt6]>=0.5"]
+
+[project.scripts]
+ventrimap = "ventrimap.app.launch:main"
+
+[project.entry-points."napari.manifest"]
+ventrimap = "ventrimap.app:napari.yaml"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ventrimap.app" = ["napari.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- napari app (v0 prototype): `ventrimap` command or Plugins > VentriMap. Open a UCL file or DICOM folder, see contours over the images, set slice order by hand (flip, drag, leave slices out; warnings if the order looks reversed or contradicts scanner positions), edit contours with napari's brush, compute volumes/EF/mass and wall-thickness bullseyes, export CSV. Install with `pip install -e ".[app]"`.
+- `contours.py`: mask <-> smooth curve conversion (adaptive control points, centripetal Catmull-Rom), exact curve areas; `scripts/curve_conversion_test.py`.
+- App: slices chosen separately for ED and ES, with suggested choices and the reason for each (no contour, apical cap, basal slices flagged for checking when the drawn ring does not look like muscle).
+- App: Segment-style curve editing (drag control points; add/delete points; pixel brush as fallback).
+- `compute_wall(..., base_end=)` to set orientation by hand.
+- `scripts/run_cohort.py`: one-row-per-mouse summary for a whole dataset.
+- `scripts/predict_groups.py`: pre-registered blind group-prediction rules for UCL validation.
+
+### Fixed
+- UCL ED/ES selection could pick a partially contoured artifact frame as ES (3 of 130 mice; Mouse91 EF 87% -> 67%). Results-changing for those mice.
+
 ## [0.3.0] - 2026-10-07
 
 ### Changed

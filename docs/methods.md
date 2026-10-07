@@ -18,6 +18,7 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Two conventions exist: labeled as **myocardium** (UCL dataset) or enclosed in the endocardial contour as **blood pool** (the author's Segment SOP).
 - Every `CardiacImage` carries `papillary` = `"myocardium"`, `"blood_pool"` or `None` (unknown). `load_ucl` sets `"myocardium"`. `compute_function` refuses to mix conventions between ED and ES, and `check_comparable` refuses to compare results across conventions unless explicitly allowed.
 - Why not convert: tested on UCL Mouse1 (2026-10-06). Morphological closing of the blood pool barely moved ESV, because at end-systole papillary muscles press against the wall and are indistinguishable from wall in the mask. Filling to the convex hull (an upper bound) changed EDV 74.7 -> 84.3 uL (+13%), ESV 22.7 -> 26.7 uL (+18%), mass 114 -> 104 mg (-9%), EF 69.6 -> 68.3%. The effect is too large to ignore and cannot be recovered reliably from labels.
+- Auto-contour default (decided 2026-10-07, author): output the model's native detailed contours (papillary muscles and trabeculae as myocardium, as in the UCL training labels); offer an optional one-way "smooth papillary muscles" step to produce the blood-pool convention. Reason: detailed -> smooth is possible, smooth -> detailed is not, and the model's published accuracy applies to its native output. The smoothed output gets its own accuracy check against the author's smooth Segment contours. Results are labeled with the convention, and comparisons across conventions warn.
 - Consequence for wall thickness (Phase 3): with `"myocardium"` labels, attached papillary muscles inflate wall thickness where they sit. A papillary-aware endocardial border is needed.
 
 ## Volumes (Phase 2)
@@ -59,6 +60,29 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Refuses incomplete grids (missing frames, mixed orientations or matrix sizes) instead of guessing.
 - Bug caught by tests during development: a trigger time of 0 ms was treated as missing, which scrambled time order. Fixed with an explicit missing-value check.
 - Tested only on synthetic series so far; needs one real Bruker DICOM export to confirm.
+
+## Slice selection per phase (app)
+
+- Slices count separately at ED and ES: the base moves toward the apex in systole, so the most basal slice can be LV at ED and atrium/outflow tract at ES.
+- Suggestions: leave out slices with no contour; include wall-only slices at the apical end (apical cap); leave out wall-without-blood elsewhere ("check"). Basal slices whose drawn ring does not look like muscle in the image (sectors with blood-like brightness relative to that slice's blood pool) are flagged "check", not excluded.
+- Why not exclude automatically: the clinical rule (include a basal slice if the blood pool is at least half surrounded by muscle) is judged on the image, and contours cannot show it because experts close the ring anyway (all 1,898 contoured UCL slices are fully enclosed by the myocardium label). The image check flagged 5 basal slices in 130 mice, and flow artifacts or bright slices explained most of them, so it is a prompt for the user, not a rule.
+
+## Curve contours (`contours.py`)
+
+- Masks are converted to smooth closed curves (centripetal Catmull-Rom curve through control points, which does not overshoot when points are unevenly spaced); areas are taken from the curve (shoelace formula), with interior holes subtracted so the labeling convention is kept.
+- Control points are placed adaptively: 16 evenly spaced to start, then points are added where the curve strays more than 1 pixel from the outline, up to 40. Reason: the author spotted that evenly spaced points cut across a sharp tip of the blood pool (Mouse40, slice 4, about 4 o'clock). On 20 mice, 24 evenly spaced points missed the outline by up to 3.4 px (median worst 1.5 px); adaptive placement keeps 95% of contours within 1.0 px (max 1.25 px) with a median of 19 points. 1 px is the size of the pixel staircase in the source labels.
+- Conversion test on all 130 UCL mice (2026-10-07), curve vs pixel-count results (mean / worst mouse):
+
+| Control points | EDV | ESV | Mass ED | EF |
+| --- | --- | --- | --- | --- |
+| full outline | -0.1% / 0.7% | -0.1% / 0.3% | 0.0% / 0.4% | 0.0 / 0.2 pts |
+| **adaptive (default)** | **-0.1% / 1.0%** | **-0.1% / 1.5%** | **0.1% / 1.1%** | **0.0 / 0.8 pts** |
+| 32 even | 0.0% / 0.8% | -0.1% / 0.7% | 0.2% / 0.9% | 0.0 / 0.5 pts |
+| 24 even | 0.1% / 1.2% | -0.1% / 1.1% | 0.2% / 0.7% | 0.1 / 0.7 pts |
+| 16 even | 0.2% / 2.2% | 0.0% / 1.7% | 0.3% / 1.5% | 0.1 / 1.0 pts |
+| 12 even | 0.0% / 3.3% | 0.1% / 3.6% | 0.3% / 2.7% | 0.0 / 1.7 pts |
+
+- Decision: adaptive placement by default. Volumes match the pixel method within about 1.5% in every mouse, like 24 even points, but the shape follows tips and notches. The original mask is kept alongside the curve; only slices the user edits are re-rasterised from curves.
 
 ## Scar (Phase 4, to decide)
 

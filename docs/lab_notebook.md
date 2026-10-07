@@ -2,6 +2,28 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-07 (ED/ES from raw cines)
+
+- Author: Bruker gives raw cines, so ED/ES must be identified before analysis. Tried an image-only estimate (bright-blood pixel count inside the ED epicardium, summed over slices, per frame) on 130 UCL mice: ED within 1 frame of the expert's frame in 94%, ES in only 46%. Not good enough to choose ES automatically. Plan: user scrubs the cine and marks ED/ES (as in Segment); automatic suggestion from the volume curve once auto-contour has contoured every frame.
+- Redesigned the app concept as a plain desktop tool (menu bar, toolbar, cine scrubber with ED/ES marking) after author feedback that the first version looked too "AI/techy".
+
+## 2026-10-07 (napari v0 + curve conversion test)
+
+- Built the napari app v0 (open, ED/ES, manual slice order with warnings, pixel brush editing, compute, bullseyes, CSV). Numbers identical to the pipeline (Mouse40 EF 79.1%).
+- Decided (author): Segment-style curve contours with draggable points as the main editing mode; pixel brush as fallback.
+- Conversion test, all 130 mice: at 24 even control points every measure stays within about 1% of the pixel method. Author then spotted the curve cutting across a sharp blood-pool tip (Mouse40 slice 4, 4 o'clock): switched to adaptive point placement (points added where the curve misses the outline by >1 px) and a centripetal Catmull-Rom curve (no overshoot with clustered points). Same ~1% agreement, shape now follows tips. Built the drag-to-edit curve editor in napari; dragging points updates the curve and results.
+
+## 2026-10-07 (130-mouse cohort run)
+
+- Downloaded all 130 UCL mice. The dataset gives group totals (39 control, 11 MI, 51 DCM, 29 TAC) but no per-mouse group labels; emailed the corresponding author (J. Steeden) to ask for them and to confirm voxel spacing.
+- Pre-registered blind group-prediction rules (`scripts/predict_groups.py`, committed before looking at results).
+- Ran `scripts/run_cohort.py` on all 130. Volumes/EF/mass for 130/130; wall thickness for 124/130.
+- Bug found: in mice with extra artifact frames contoured on only some slices, the smallest blood pool was a partial frame, so ES was wrong (Mouse91: 2 of 7 slices, EF 87%). Fixed in `find_ed_es` (candidates must cover >= max-1 slices) with a test; affected Mouse91, 125, 48. Mouse91 EF now 67%.
+- Orientation refused for 6 mice, all dilated (EF 15-37%): flatter area profiles. 0 known wrong, but the 114 new mice have no visual orientation truth yet; spot-check needed. Fallback for the app: one manual click.
+- 8 mice flagged for ED/ES mass mismatch >15% (contour inconsistency in the source labels); to review visually.
+- Cohort medians: EDV 67.9 uL, ESV 28.4, EF 57.9%, mass ED 107.4 mg / ES 115.2 mg. In line with the paper's reported test-set values (EDV 65.6, ESV 27.3, EF 59.3, mass 105.2 / 111.2; 25 mice), including ES mass > ED mass.
+- Blind prediction counts: Control 91, DCM 14, TAC 13, MI 12 (expected 39 / 51 / 29 / 11). The rules catch severe phenotypes but call most of the DCM and TAC mice normal, so many DCM/TAC mice are mild by these measures. Scoring waits for the labels.
+
 ## 2026-10-07 (name, logo, demo)
 
 - Renamed the project VentriMap (package `ventrimap`). Name check: no existing tool called VentriMap; free on PyPI. Similar names in human cardiology (Vektor vMap, Ventripoint) are different products.

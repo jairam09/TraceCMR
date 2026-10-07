@@ -25,3 +25,4 @@ JOSS (and increasingly other journals) require a statement of which AI tools wer
 - 2026-10-06: Identified that UCL labels papillary muscles as myocardium while my Segment SOP includes them in the blood pool; decided conventions must be tracked and never silently mixed.
 - 2026-10-07: Chose a single app built as a napari plugin (auto-contour + manual correction + analysis) rather than a standalone app; chose tracking the same mouse across scans as the flagship feature; decided to check Segment Pre-clinical's mouse AI before building auto-contouring.
 - 2026-10-07: Chose the name VentriMap and requested a logo and a web demo of the pipeline.
+- 2026-10-07: Decided auto-contour defaults to detailed (UCL-style) contours with optional smoothing; proposed user-controlled slice ordering (flip/reorder/exclude) in the app instead of relying on automatic base/apex detection.

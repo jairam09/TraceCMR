@@ -35,27 +35,27 @@ def _masks_for_contours(label2d: np.ndarray) -> dict[str, np.ndarray]:
     }
 
 
-def save_bullseye(
+def draw_bullseye(
+    fig,
     values: dict[str, np.ndarray],
-    out_path: str | Path,
     title: str,
     label: str,
     vmin: float,
     vmax: float,
     cmap: str = "viridis",
     fmt: str = "{:.2f}",
-) -> Path:
-    """Bullseye plot: basal ring outside, mid ring, apical ring inside (AHA layout).
+    rect=None,
+):
+    """Draw a bullseye into an existing matplotlib figure (used by files and the app).
 
-    `values` maps level -> per-segment values (6 basal, 6 mid, 4 apical).
-    Segment 1 starts at the reference angle (3 o'clock = image x-axis) and runs
-    clockwise, matching the image (y points down), so a segment sits where it
-    appears on the scan. Missing levels are drawn grey.
+    Basal ring outside, mid ring, apical ring inside (AHA layout). `values` maps
+    level -> per-segment values (6 basal, 6 mid, 4 apical). Segment 1 starts at the
+    reference angle (3 o'clock = image x-axis) and runs clockwise, matching the
+    image (y points down), so a segment sits where it appears on the scan.
+    Missing levels are drawn grey.
     """
-    out_path = Path(out_path)
     rings = [("basal", 3.0, 2.0), ("mid", 2.0, 1.0), ("apical", 1.0, 0.25)]
-    fig = plt.figure(figsize=(4.6, 4.2))
-    ax = fig.add_subplot(projection="polar")
+    ax = fig.add_subplot(projection="polar") if rect is None else fig.add_axes(rect, projection="polar")
     ax.set_theta_zero_location("E")
     ax.set_theta_direction(-1)  # clockwise: image y axis points down
     cm = plt.get_cmap(cmap)
@@ -83,6 +83,23 @@ def save_bullseye(
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cm)
     fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.08, label=label)
     ax.set_title(title, fontsize=10, pad=12)
+    return ax
+
+
+def save_bullseye(
+    values: dict[str, np.ndarray],
+    out_path: str | Path,
+    title: str,
+    label: str,
+    vmin: float,
+    vmax: float,
+    cmap: str = "viridis",
+    fmt: str = "{:.2f}",
+) -> Path:
+    """Save a bullseye plot to a file (see `draw_bullseye`)."""
+    out_path = Path(out_path)
+    fig = plt.figure(figsize=(4.6, 4.2))
+    draw_bullseye(fig, values, title, label, vmin, vmax, cmap, fmt)
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)

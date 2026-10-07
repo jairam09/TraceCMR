@@ -218,17 +218,23 @@ class WallResult:
         return out
 
 
-def compute_wall(ed: CardiacImage, es: CardiacImage, n_rays: int = 120) -> WallResult:
+def compute_wall(
+    ed: CardiacImage, es: CardiacImage, n_rays: int = 120, base_end: str | None = None
+) -> WallResult:
     """Regional wall thickness at ED and ES, and systolic thickening per segment.
 
     Thickening = (ESWT - EDWT) / EDWT x 100%, compared level by level, because the
     base moves toward the apex in systole and ED/ES slices are not the same tissue.
+
+    `base_end` ("first"/"last") sets the orientation by hand, e.g. from the slice
+    order the user chose in the app; if None it is detected (and may refuse).
     """
     if ed.papillary != es.papillary:
         raise ValueError("ED and ES use different papillary conventions")
-    orient = detect_for_heart(ed, es)
-    ed_w = heart_wall(ed, orient.base_end, n_rays)
-    es_w = heart_wall(es, orient.base_end, n_rays)
+    if base_end is None:
+        base_end = detect_for_heart(ed, es).base_end
+    ed_w = heart_wall(ed, base_end, n_rays)
+    es_w = heart_wall(es, base_end, n_rays)
 
     thick: dict[str, np.ndarray] = {}
     for level in SEGMENTS_PER_LEVEL:

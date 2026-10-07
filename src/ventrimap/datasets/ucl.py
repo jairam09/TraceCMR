@@ -50,16 +50,28 @@ def labeled_frames(path: str | Path) -> list[int]:
 def find_ed_es(path: str | Path) -> dict[str, int]:
     """Identify ED (largest blood pool) and ES (smallest) among the labeled frames.
 
-    For the few mice with extra labeled artifact frames, ED and ES are still the
-    frames with the largest and smallest labeled blood pool.
+    A few mice (4 of 130) have extra labeled artifact frames in which only some
+    slices are contoured. Picking the smallest blood pool among those would pick a
+    partial frame as ES (found on Mouse91: 2 of 7 slices, EF 87%). So only frames
+    contoured on at least (max - 1) slices are candidates; one slice fewer is
+    allowed because the LV shortens in systole and the base slice can drop out.
     """
     frames = labeled_frames(path)
     if len(frames) < 2:
         raise ValueError(f"{Path(path).name}: need at least 2 labeled frames, found {frames}")
     with _open(path) as f:
         masks = f["Masks"]
-        blood = {t: int(np.count_nonzero(masks[..., t] == 2)) for t in frames}
-    return {"ED": max(blood, key=blood.get), "ES": min(blood, key=blood.get)}
+        n_slices = {}
+        blood = {}
+        for t in frames:
+            m = masks[..., t]
+            n_slices[t] = int((m.reshape(-1, m.shape[-1]) > 0).any(axis=0).sum())
+            blood[t] = int(np.count_nonzero(m == 2))
+    full = max(n_slices.values())
+    candidates = {t: v for t, v in blood.items() if n_slices[t] >= full - 1}
+    if len(candidates) < 2:
+        raise ValueError(f"{Path(path).name}: fewer than 2 fully contoured frames among {frames}")
+    return {"ED": max(candidates, key=candidates.get), "ES": min(candidates, key=candidates.get)}
 
 
 def load_ucl(
