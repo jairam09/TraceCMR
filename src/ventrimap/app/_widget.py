@@ -27,6 +27,8 @@ from qtpy.QtWidgets import (
     QTreeWidgetItem,
     QPushButton,
     QRadioButton,
+    QCheckBox,
+    QProgressBar,
     QComboBox,
     QScrollArea,
     QSpinBox,
@@ -114,6 +116,8 @@ class VentriMapWidget(QWidget):
         row.addWidget(self.btn_ucl)
         row.addWidget(self.btn_dcm)
         lay.addLayout(row)
+        self.chk_raw = QCheckBox("UCL: open as a raw cine (hide the expert contours)")
+        lay.addWidget(self.chk_raw)
         self.lbl_scan = QLabel("No scan open.")
         self.lbl_scan.setWordWrap(True)
         self.lbl_scan.setStyleSheet(NOTE_STYLE)
@@ -123,6 +127,25 @@ class VentriMapWidget(QWidget):
         # 2. Frames
         box = QGroupBox("2  End-diastole and end-systole")
         grid = QGridLayout(box)
+        self.lbl_frame = QLabel("Frame –")
+        self.lbl_frame.setStyleSheet("font-weight: 600;")
+        grid.addWidget(self.lbl_frame, 3, 0)
+        self.btn_play = QPushButton("Play cine")
+        grid.addWidget(self.btn_play, 3, 1, 1, 2)
+        self.btn_set_ed = QPushButton("Set ED here")
+        self.btn_set_es = QPushButton("Set ES here")
+        grid.addWidget(self.btn_set_ed, 4, 0, 1, 2)
+        grid.addWidget(self.btn_set_es, 4, 2)
+        tip = QLabel("Play the cine (or drag the time slider), stop on the most relaxed frame and press "
+                     "Set ED; on the most contracted, Set ES.")
+        tip.setWordWrap(True)
+        tip.setStyleSheet(NOTE_STYLE)
+        grid.addWidget(tip, 5, 0, 1, 3)
+        self.vfig = Figure(figsize=(4.2, 1.5), facecolor="none")
+        self.vcanvas = FigureCanvasQTAgg(self.vfig)
+        self.vcanvas.setMinimumHeight(120)
+        self.vcanvas.setStyleSheet("background: transparent;")
+        grid.addWidget(self.vcanvas, 6, 0, 1, 3)
         self.spin_ed, self.spin_es = QSpinBox(), QSpinBox()
         grid.addWidget(QLabel("ED frame"), 0, 0)
         grid.addWidget(self.spin_ed, 0, 1)
@@ -171,6 +194,28 @@ class VentriMapWidget(QWidget):
         # 4. Contours
         box = QGroupBox("4  Contours")
         lay = QVBoxLayout(box)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Model"))
+        self.cmb_model = QComboBox()
+        row.addWidget(self.cmb_model, 1)
+        lay.addLayout(row)
+        self.chk_all_frames = QCheckBox("Contour every frame (needed to suggest ED/ES)")
+        self.chk_all_frames.setChecked(True)
+        lay.addWidget(self.chk_all_frames)
+        self.chk_compare = QCheckBox("Double-check with the other model (slower)")
+        lay.addWidget(self.chk_compare)
+        self.btn_auto = QPushButton("Auto-contour")
+        self.btn_auto.setMinimumHeight(32)
+        lay.addWidget(self.btn_auto)
+        self.prog = QProgressBar()
+        self.prog.setVisible(False)
+        lay.addWidget(self.prog)
+        self.lbl_auto = QLabel("")
+        self.lbl_auto.setWordWrap(True)
+        self.lbl_auto.setStyleSheet(NOTE_STYLE)
+        lay.addWidget(self.lbl_auto)
+        self.chk_smooth = QCheckBox("Smooth papillary muscles into the blood pool (experimental)")
+        lay.addWidget(self.chk_smooth)
         self.lbl_conv = QLabel("")
         self.lbl_conv.setWordWrap(True)
         lay.addWidget(self.lbl_conv)
@@ -186,6 +231,19 @@ class VentriMapWidget(QWidget):
         self.cmb_add = QComboBox()
         self.cmb_add.addItems(["endocardium (red)", "epicardium (green)"])
         row.addWidget(self.cmb_add)
+        lay.addLayout(row)
+        row = QHBoxLayout()
+        self.btn_smooth = QPushButton("Smooth")
+        self.btn_smooth.setToolTip("Smooth both contours on this slice and hide its points")
+        self.btn_points = QPushButton("Edit points")
+        self.btn_points.setToolTip("Show this slice's points again")
+        self.btn_undo = QPushButton("Undo")
+        row.addWidget(self.btn_smooth, 1)
+        self.btn_snap = QPushButton("Snap to edge")
+        self.btn_snap.setToolTip("Grow this slice's endocardium into bright blood the model left out (stops at muscle)")
+        row.addWidget(self.btn_snap)
+        row.addWidget(self.btn_points)
+        row.addWidget(self.btn_undo)
         lay.addLayout(row)
         tip = QLabel("Curves: drag a white point to reshape the contour. To add a point, press 2 (add mode) and "
                      "click near the contour; to delete, select it and press Delete. Pixel brush: paint in the "
@@ -237,6 +295,10 @@ class VentriMapWidget(QWidget):
         self.spin_ed.valueChanged.connect(self._frames_changed)
         self.spin_es.valueChanged.connect(self._frames_changed)
         self.btn_auto_frames.clicked.connect(self._auto_frames)
+        self.btn_set_ed.clicked.connect(lambda: self.spin_ed.setValue(self.current_frame()))
+        self.btn_set_es.clicked.connect(lambda: self.spin_es.setValue(self.current_frame()))
+        self.btn_play.clicked.connect(self._toggle_play)
+        self.viewer.dims.events.current_step.connect(self._update_frame_label)
         self.btn_flip.clicked.connect(self._flip)
         self.btn_auto_order.clicked.connect(self._auto_order)
         self.list.model().rowsInserted.connect(lambda *a: QTimer.singleShot(0, self._order_from_list))
@@ -244,6 +306,13 @@ class VentriMapWidget(QWidget):
         self.list.currentItemChanged.connect(self._goto_slice)
         self.btn_suggest.clicked.connect(self._apply_suggestions)
         self.btn_compute.clicked.connect(self.compute)
+        self.btn_auto.clicked.connect(self.autocontour)
+        self.btn_smooth.clicked.connect(self._smooth_points)
+        self.btn_points.clicked.connect(self._edit_points)
+        self.btn_snap.clicked.connect(self._snap_slice)
+        self.btn_undo.clicked.connect(lambda: self.editor and self.editor.undo() and self.lbl_auto.setText("Undid the last smoothing."))
+        self.chk_smooth.toggled.connect(self._smooth_toggled)
+        self._fill_models()
         self.rb_curves.toggled.connect(self._mode_changed)
         self.cmb_add.currentIndexChanged.connect(self._add_target_changed)
         self.btn_export.clicked.connect(self._export)
@@ -254,7 +323,7 @@ class VentriMapWidget(QWidget):
     def _open_ucl(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open UCL mouse file", "", "UCL HDF5 (*.h5)")
         if path:
-            self.load_session(Session.from_ucl(path))
+            self.load_session(Session.from_ucl(path, with_labels=not self.chk_raw.isChecked()))
 
     def _open_dicom(self):
         folder = QFileDialog.getExistingDirectory(self, "Open DICOM cine folder")
@@ -304,6 +373,7 @@ class VentriMapWidget(QWidget):
         self.viewer.reset_view()
         self._centre_on_heart()
         self._mode_changed()
+        self._draw_volume_curve()
         if message:
             self.lbl_order.setText(message)
 
@@ -361,6 +431,29 @@ class VentriMapWidget(QWidget):
         if self.editor is not None:
             self.editor.add_to = "endo" if idx == 0 else "epi"
 
+    def current_frame(self) -> int:
+        return int(self.viewer.dims.current_step[0]) if self.session is not None else 0
+
+    def _update_frame_label(self, event=None):
+        if self.session is None or self.viewer.dims.ndim < 4:
+            return
+        t = self.current_frame()
+        tag = " · ED" if t == self.session.ed_frame else " · ES" if t == self.session.es_frame else ""
+        self.lbl_frame.setText(f"Frame {t} of {self.session.image.shape[3] - 1}{tag}")
+
+    def _toggle_play(self):
+        """Play/stop the cine along the time axis (napari's own player)."""
+        try:
+            qt_dims = self.viewer.window._qt_viewer.dims
+        except Exception:
+            return
+        if getattr(qt_dims, "is_playing", False):
+            qt_dims.stop()
+            self.btn_play.setText("Play cine")
+        else:
+            qt_dims.play(axis=0, fps=12)
+            self.btn_play.setText("Stop")
+
     def _show_frame(self, t: int):
         step = list(self.viewer.dims.current_step)
         step[0] = t
@@ -373,6 +466,8 @@ class VentriMapWidget(QWidget):
         self.session.ed_frame = self.spin_ed.value()
         self.session.es_frame = self.spin_es.value()
         self._rebuild_list()
+        self._update_frame_label()
+        self._draw_volume_curve()
         if self.rb_curves.isChecked():
             self._mode_changed()
 
@@ -476,6 +571,157 @@ class VentriMapWidget(QWidget):
         if not w:
             self.lbl_order.setStyleSheet(NOTE_STYLE)
 
+    # ---------- auto-contour ----------
+
+    def _fill_models(self):
+        from .. import autocontour as ac
+
+        self.cmb_model.clear()
+        self._model_keys = []
+        for key, status in ac.available().items():
+            info = ac.MODELS[key]
+            self.cmb_model.addItem(info.label + ("" if status == "ready" else "  (not installed)"))
+            self._model_keys.append(key)
+        ready = [i for i, k in enumerate(self._model_keys) if ac.available()[k] == "ready"]
+        if ready:
+            self.cmb_model.setCurrentIndex(ready[0])
+        self.lbl_auto.setText("" if ready else "No model installed yet: see the README to download one.")
+
+    def autocontour(self, sync: bool = False):
+        """Run the chosen model in the background (sync=True for tests and scripts)."""
+        from .. import autocontour as ac
+
+        if self.session is None:
+            return
+        self._sync_labels()
+        key = self._model_keys[self.cmb_model.currentIndex()]
+        other = None
+        if self.chk_compare.isChecked():
+            others = [k for k, st in ac.available().items() if st == "ready" and k != key]
+            other = others[0] if others else None
+        all_frames = self.chk_all_frames.isChecked()
+        self.btn_auto.setEnabled(False)
+        self.prog.setVisible(True)
+        self.prog.setRange(0, 0)
+        self.lbl_auto.setText(f"Running the {ac.MODELS[key].label}…")
+
+        def work():
+            return self.session.run_autocontour(key, all_frames=all_frames, compare_with=other)
+
+        def done(msg):
+            self.prog.setVisible(False)
+            self.btn_auto.setEnabled(True)
+            self.chk_smooth.blockSignals(True)
+            self.chk_smooth.setChecked(False)
+            self.chk_smooth.blockSignals(False)
+            self.lbl_auto.setText(msg)
+            self._after_labels_changed()
+
+        def failed(err):
+            self.prog.setVisible(False)
+            self.btn_auto.setEnabled(True)
+            self.lbl_auto.setText(f"⚠ Auto-contour failed: {err}")
+
+        if sync:
+            try:
+                done(work())
+            except Exception as e:
+                failed(e)
+            return
+        from napari.qt.threading import create_worker
+
+        worker = create_worker(work)
+        worker.returned.connect(done)
+        worker.errored.connect(failed)
+        worker.start()
+
+    def _smooth_points(self):
+        """Segment-style: smooth both contours on the slice being viewed and hide its points."""
+        if self.editor is None or self.editor.points is None or not self.rb_curves.isChecked():
+            self.lbl_auto.setText("Switch to Curves to smooth contours.")
+            return
+        step = self.viewer.dims.current_step
+        n = self.editor.smooth_and_hide(int(step[0]), int(step[1]))
+        self.lbl_auto.setText("Smoothed this slice. Press again for smoother, Edit points to adjust, Undo to revert."
+                              if n else "No contours on this slice and frame.")
+
+    def _snap_slice(self):
+        """Grow the endocardium on the current slice to the bright-blood edge in the image (refine.py)."""
+        from ..contours import mask_to_curve
+        from ..refine import snap_slice
+
+        if self.session is None or self.editor is None:
+            return
+        self._sync_labels()
+        t, z = (int(v) for v in self.viewer.dims.current_step[:2])
+        s = self.session
+        before = s.label[:, :, z, t].copy()
+        after = snap_slice(before, s.image[:, :, z, t], s.spacing[:2])
+        grown = int((after == 1).sum() - (before == 1).sum())
+        if grown == 0:
+            self.lbl_auto.setText("Snap to edge: nothing to add on this slice.")
+            return
+        self.editor._undo.append(({k: v.copy() for k, v in self.editor.curves.items()}, set(self.editor.edited),
+                                  set(self.editor.hidden)))
+        s.label[:, :, z, t] = after
+        self.viewer.layers["contours"].data = s.label.transpose(3, 2, 1, 0).copy()
+        c = mask_to_curve(after == 1)
+        if c is not None:
+            self.editor.curves[(t, z, "endo")] = c.control
+            self.editor.edited.add((t, z, "endo"))
+            self.editor._refresh_layers()
+        dx, dy, _ = s.spacing
+        self.lbl_auto.setText(f"Snap to edge: added {grown} bright pixels ({grown * dx * dy:.2f} mm²) to the blood pool. "
+                              "Undo reverts.")
+
+    def _edit_points(self):
+        if self.editor is not None:
+            step = self.viewer.dims.current_step
+            self.editor.show_slice_points(int(step[0]), int(step[1]))
+
+    def _smooth_toggled(self, on: bool):
+        if self.session is None:
+            return
+        self._sync_labels()
+        self.session.set_smooth(on)
+        self._after_labels_changed()
+
+    def _after_labels_changed(self):
+        """Push session labels to the viewer and refresh everything that depends on them."""
+        s = self.session
+        self.viewer.layers["contours"].data = s.label.transpose(3, 2, 1, 0).copy()
+        for spin, v in ((self.spin_ed, s.ed_frame), (self.spin_es, s.es_frame)):
+            spin.blockSignals(True)
+            spin.setValue(v)
+            spin.blockSignals(False)
+        self.lbl_conv.setText(CONVENTION_TEXT.get(s.papillary, CONVENTION_TEXT[None]))
+        self._rebuild_list()
+        self._update_frame_label()
+        self._draw_volume_curve()
+        if self.rb_curves.isChecked():
+            self._mode_changed()
+        self._show_frame(s.ed_frame)
+
+    def _draw_volume_curve(self):
+        s = self.session
+        self.vfig.clear()
+        v = s.volume_curve() if s is not None else []
+        drawn = [i for i, x in enumerate(v) if x > 0]
+        if len(drawn) < 3:
+            self.vcanvas.draw()
+            return
+        ax = self.vfig.add_axes((0.14, 0.24, 0.84, 0.7))
+        ax.plot(drawn, [v[i] for i in drawn], color="#9AA1A8", lw=1.5)
+        ax.plot([s.ed_frame], [v[s.ed_frame]], "o", color="#E58A94")
+        ax.plot([s.es_frame], [v[s.es_frame]], "o", color="#7FB2E5")
+        ax.set_xlabel("frame", fontsize=8, color="#9AA1A8")
+        ax.set_ylabel("µL", fontsize=8, color="#9AA1A8")
+        ax.tick_params(labelsize=7, colors="#9AA1A8")
+        for sp in ax.spines.values():
+            sp.set_color("#4A5866")
+        ax.set_facecolor("none")
+        self.vcanvas.draw()
+
     # ---------- compute ----------
 
     def compute(self):
@@ -532,6 +778,7 @@ class VentriMapWidget(QWidget):
 
     def _set_enabled(self, on: bool):
         for wdg in (self.spin_ed, self.spin_es, self.btn_show_ed, self.btn_show_es, self.btn_auto_frames,
+                    self.btn_play, self.btn_set_ed, self.btn_set_es,
                     self.btn_flip, self.btn_auto_order, self.list, self.btn_suggest, self.btn_compute, self.btn_export,
-                    self.rb_curves, self.rb_pixels, self.cmb_add):
+                    self.rb_curves, self.rb_pixels, self.cmb_add, self.btn_auto, self.chk_smooth, self.btn_smooth, self.btn_undo, self.btn_points, self.btn_snap):
             wdg.setEnabled(on)

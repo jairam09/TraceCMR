@@ -73,6 +73,9 @@ class Session:
     reasons: dict[str, dict[int, str]] = field(default_factory=dict)
     slice_positions_mm: list[float] | None = None
     source: str = ""
+    flags: dict = field(default_factory=dict)  # (frame, slice) -> reason from auto-contour checks
+    label_detailed: np.ndarray | None = None  # model output before optional papillary smoothing
+    contoured_by: str = ""
 
     def __post_init__(self) -> None:
         if self.image.ndim != 4 or self.label.shape != self.image.shape:
@@ -88,8 +91,9 @@ class Session:
     # ---------- loading ----------
 
     @classmethod
-    def from_ucl(cls, path: str | Path) -> "Session":
-        """Open a UCL .h5 file with its expert labels; slice order is a first guess."""
+    def from_ucl(cls, path: str | Path, with_labels: bool = True) -> "Session":
+        """Open a UCL .h5 file. with_labels=False opens it as a raw cine (no expert contours),
+        which mimics a fresh scanner export for trying auto-contour."""
         import h5py
 
         from ..datasets.ucl import UCL_SPACING, find_ed_es
@@ -103,6 +107,9 @@ class Session:
             if src < lut.size:
                 lut[src] = dst
         label = lut[raw]
+        if not with_labels:
+            return cls(image=image, label=np.zeros(image.shape, np.uint8), spacing=UCL_SPACING,
+                       subject_id=Path(path).stem + " (raw)", source=str(path))
         frames = find_ed_es(path)
         s = cls(image=image, label=label, spacing=UCL_SPACING, subject_id=Path(path).stem,
                 papillary="myocardium", ed_frame=frames["ED"], es_frame=frames["ES"], source=str(path))
@@ -187,6 +194,57 @@ class Session:
         for ph, res in self.suggest_slices().items():
             self.included[ph] = {z for z, (inc, _) in res.items() if inc}
             self.reasons[ph] = {z: why for z, (_, why) in res.items()}
+            t = self.ed_frame if ph == "ED" else self.es_frame
+            for (ft, z), why in self.flags.items():  # auto-contour checks override "wall covers"
+                if ft == t and z in self.included[ph]:
+                    self.reasons[ph][z] = f"check: {why}"
+
+    # ---------- auto-contour ----------
+
+    def run_autocontour(self, model: str = "ucl", all_frames: bool = True, compare_with: str | None = None,
+                        progress=None) -> str:
+        """Contour with a published model; flags slices to review; suggests ED/ES. Returns a status line."""
+        from .. import autocontour as ac
+
+        frames = list(range(self.image.shape[3])) if all_frames else sorted({self.ed_frame, self.es_frame})
+        lab = ac.run(self.image, self.spacing, model, frames=frames, progress=progress)
+        flags = {k: v for k, v in ac.sanity_flags(lab, frames).items()}
+        if compare_with:
+            other = ac.run(self.image, self.spacing, compare_with, frames=frames)
+            for k, d in ac.disagreement(lab, other, frames).items():
+                flags.setdefault(k, f"models disagree (overlap {d:.0%})")
+        self.label = lab
+        self.label_detailed = lab.copy()
+        self.papillary = ac.MODELS[model].papillary
+        self.contoured_by = ac.MODELS[model].label
+        self.flags = flags
+        msg = f"Contoured {len(frames)} frame(s) with the {ac.MODELS[model].label}."
+        if all_frames:
+            msg += " " + self.auto_ed_es()
+        self.auto_order()
+        self.apply_suggestions()
+        n = len({z for (t, z) in flags if t in (self.ed_frame, self.es_frame)})
+        msg += f" {n} slice(s) flagged for review." if n else " No slices flagged."
+        return msg
+
+    def set_smooth(self, on: bool) -> None:
+        """Experimental: move papillary muscles into the blood pool (see papillary.py)."""
+        from ..papillary import smooth_papillary
+
+        if self.label_detailed is None:
+            self.label_detailed = self.label.copy()
+        if on:
+            self.label = smooth_papillary(self.label_detailed, self.spacing)
+            self.papillary = "blood_pool"
+        else:
+            self.label = self.label_detailed.copy()
+            self.papillary = "myocardium" if self.contoured_by.startswith("UCL") or self.source.endswith(".h5") else None
+
+    def volume_curve(self) -> list[float]:
+        """LV blood-pool volume (uL) per frame over contoured frames (0 where a frame has no contours)."""
+        dx, dy, dz = self.spacing
+        blood = (self.label == L.LV_BLOODPOOL).reshape(-1, self.label.shape[3])
+        return [float(v) * dx * dy * dz for v in blood.sum(axis=0)]
 
     def auto_order(self) -> str:
         """Order slices base-first using the blood-pool taper. Returns a short status message."""

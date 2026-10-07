@@ -18,7 +18,7 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Two conventions exist: labeled as **myocardium** (UCL dataset) or enclosed in the endocardial contour as **blood pool** (the author's Segment SOP).
 - Every `CardiacImage` carries `papillary` = `"myocardium"`, `"blood_pool"` or `None` (unknown). `load_ucl` sets `"myocardium"`. `compute_function` refuses to mix conventions between ED and ES, and `check_comparable` refuses to compare results across conventions unless explicitly allowed.
 - Why not convert: tested on UCL Mouse1 (2026-10-06). Morphological closing of the blood pool barely moved ESV, because at end-systole papillary muscles press against the wall and are indistinguishable from wall in the mask. Filling to the convex hull (an upper bound) changed EDV 74.7 -> 84.3 uL (+13%), ESV 22.7 -> 26.7 uL (+18%), mass 114 -> 104 mg (-9%), EF 69.6 -> 68.3%. The effect is too large to ignore and cannot be recovered reliably from labels.
-- Auto-contour default (decided 2026-10-07, author): output the model's native detailed contours (papillary muscles and trabeculae as myocardium, as in the UCL training labels); offer an optional one-way "smooth papillary muscles" step to produce the blood-pool convention. Reason: detailed -> smooth is possible, smooth -> detailed is not, and the model's published accuracy applies to its native output. The smoothed output gets its own accuracy check against the author's smooth Segment contours. Results are labeled with the convention, and comparisons across conventions warn.
+- Auto-contour default (revised 2026-10-07, author; replaces the earlier "detailed by default" decision): analysis defaults to papillary muscles and trabeculae in the blood pool (smooth contours, the author's Segment convention), because it is widely used, more reproducible, and gives cleaner wall thickness. The model's native detailed mask is still stored, so switching to "papillary as myocardium" is one click and needs no re-contouring. Results are labeled with the convention, and comparisons across conventions warn. Before citing this as a guideline standard, check the current SCMR post-processing recommendations (both conventions are accepted if applied consistently). Interim (same day): the automatic detailed-to-smooth conversion (`papillary.py`) is not yet reliable (fills papillary slits at ED, but also eats compact wall where thickness varies, mostly at ES; +19% ESV on average over 30 mice), so until it is tuned against hand-drawn smooth contours, auto-contour output stays detailed and smoothing is an experimental option. Users who want the blood-pool convention now can correct contours by hand.
 - Consequence for wall thickness (Phase 3): with `"myocardium"` labels, attached papillary muscles inflate wall thickness where they sit. A papillary-aware endocardial border is needed.
 
 ## Volumes (Phase 2)
@@ -61,6 +61,22 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Bug caught by tests during development: a trigger time of 0 ms was treated as missing, which scrambled time order. Fixed with an explicit missing-value check.
 - Tested only on synthetic series so far; needs one real Bruker DICOM export to confirm.
 
+## Snap to edge (`refine.py`, app button)
+
+- Fixed rule: per slice, cut-off halfway between blood brightness (blood-pool core) and muscle brightness (mid-wall); grow the blood pool into connected wall pixels brighter than the cut-off, within 0.4 mm of the original border and at least 0.15 mm from the epicardium. Deterministic: same input, same output. Blood pool only grows, so the papillary convention is kept.
+- Why: the author spotted the model rounding off thin bright tips of the blood pool (Mouse40, slice 4); checks showed 30 bright pixels left out by the model's mask, 12 more shaved by curve smoothing.
+- Validation on UCL's 25 held-out test mice (UCL model output vs expert):
+
+| Version | EDV error | ESV error | mean abs EF error | Mass error |
+| --- | --- | --- | --- | --- |
+| no snapping | -2.6% | -0.6% | 2.13 pts | +6.4% |
+| ED and ES | +0.4% | +5.2% | 2.32 pts | +4.0% |
+| ED and ES, stricter cut-off (0.7) | -1.4% | +1.6% | 2.15 pts | +5.4% |
+| ED only | +0.4% | -0.6% | 2.04 pts | +4.0% |
+| ED only, stricter | -1.4% | -0.6% | 1.94 pts | +5.4% |
+
+- Decision: not automatic. EF improvement is within noise for 25 mice, ES over-grows (compressed trabeculae at ES give in-between brightness that experts count as wall), and an ED-only rule is asymmetric. Offered as a per-slice "Snap to edge" button with Undo, for tips the user can see are cut.
+
 ## Slice selection per phase (app)
 
 - Slices count separately at ED and ES: the base moves toward the apex in systole, so the most basal slice can be LV at ED and atrium/outflow tract at ES.
@@ -69,20 +85,22 @@ Every choice that changes a result is written down here, with the reason. Papers
 
 ## Curve contours (`contours.py`)
 
-- Masks are converted to smooth closed curves (centripetal Catmull-Rom curve through control points, which does not overshoot when points are unevenly spaced); areas are taken from the curve (shoelace formula), with interior holes subtracted so the labeling convention is kept.
-- Control points are placed adaptively: 16 evenly spaced to start, then points are added where the curve strays more than 1 pixel from the outline, up to 40. Reason: the author spotted that evenly spaced points cut across a sharp tip of the blood pool (Mouse40, slice 4, about 4 o'clock). On 20 mice, 24 evenly spaced points missed the outline by up to 3.4 px (median worst 1.5 px); adaptive placement keeps 95% of contours within 1.0 px (max 1.25 px) with a median of 19 points. 1 px is the size of the pixel staircase in the source labels.
-- Conversion test on all 130 UCL mice (2026-10-07), curve vs pixel-count results (mean / worst mouse):
+- Masks are converted to smooth closed curves (centripetal Catmull-Rom curve through control points); areas are taken from the curve (shoelace formula), with interior holes subtracted so the labeling convention is kept. The original mask is kept; only slices the user edits are re-rasterised from curves.
+- Control-point placement, version 3 (2026-10-07):
+  1. The outline is smoothed along its length (Gaussian, 1.5 px) to remove the pixel staircase, then rescaled about its centroid to keep the original area (smoothing alone shrank small end-systolic cavities by up to ~5%).
+  2. 18 points are spaced evenly along it (fewer for very small contours).
+  3. Extra points (up to 26 in total) are added only where the curve would miss the outline by more than 1.5 px, and never closer than 4 px to another point.
+- Epicardium (editor): smoothed more (3 px) and given 16 evenly spaced points with no tip extras, because the outer surface of the heart is anatomically smooth (no papillary muscles or trabeculae). This irons out small wobbles in model outlines (author spotted an indent on Mouse40 slice 4 that came from the model's mask) while keeping the enclosed area (within ~0.1% on the slices checked). The endocardium keeps 1.5 px smoothing so real detail survives.
+- History: v1 used 24 evenly spaced points; the author spotted a sharp blood-pool tip being cut off. v2 added points wherever the curve missed the raw outline by >1 px, which followed tips but bunched points at pixel steps (author: hard to edit). v3 keeps tips without bunching.
+- Note: a tip the author later spotted on an auto-contoured slice (Mouse40) was cut by the model's own mask, not by the curve fit (the curve follows the mask within ~1.7 px). Planned: "snap to edge" refinement of the endocardium to the image.
+- Conversion test, all 130 UCL mice, curve vs pixel-count results (mean / worst mouse):
 
-| Control points | EDV | ESV | Mass ED | EF |
+| Placement | EDV | ESV | Mass ED | EF |
 | --- | --- | --- | --- | --- |
 | full outline | -0.1% / 0.7% | -0.1% / 0.3% | 0.0% / 0.4% | 0.0 / 0.2 pts |
-| **adaptive (default)** | **-0.1% / 1.0%** | **-0.1% / 1.5%** | **0.1% / 1.1%** | **0.0 / 0.8 pts** |
-| 32 even | 0.0% / 0.8% | -0.1% / 0.7% | 0.2% / 0.9% | 0.0 / 0.5 pts |
-| 24 even | 0.1% / 1.2% | -0.1% / 1.1% | 0.2% / 0.7% | 0.1 / 0.7 pts |
-| 16 even | 0.2% / 2.2% | 0.0% / 1.7% | 0.3% / 1.5% | 0.1 / 1.0 pts |
-| 12 even | 0.0% / 3.3% | 0.1% / 3.6% | 0.3% / 2.7% | 0.0 / 1.7 pts |
-
-- Decision: adaptive placement by default. Volumes match the pixel method within about 1.5% in every mouse, like 24 even points, but the shape follows tips and notches. The original mask is kept alongside the curve; only slices the user edits are re-rasterised from curves.
+| **v3 default (18 even + tips)** | **-0.1% / 1.1%** | **-0.3% / 0.9%** | **0.2% / 0.9%** | **0.0 / 0.5 pts** |
+| 24 even (smoothed outline) | -0.1% / 0.6% | -0.2% / 0.4% | 0.1% / 0.5% | 0.1 / 0.3 pts |
+| 12 even (smoothed outline) | -0.1% / 2.1% | -0.2% / 2.2% | 0.1% / 1.5% | 0.0 / 1.1 pts |
 
 ## Scar (Phase 4, to decide)
 

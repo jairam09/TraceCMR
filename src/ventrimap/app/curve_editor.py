@@ -15,7 +15,7 @@ import numpy as np
 from .. import labels as L
 from ..contours import Curve, curve_to_mask, mask_to_curve, spline_through
 
-START_POINTS = 16  # adaptive: points are added at tips/bends until the curve is within 1 px (docs/methods.md)
+START_POINTS = 18  # evenly spaced, plus a few at sharp tips, never bunched (docs/methods.md)
 COLOURS = {"endo": (0.90, 0.29, 0.29, 1.0), "epi": (0.24, 0.78, 0.43, 1.0)}
 Key = tuple[int, int, str]  # (frame, slice, "endo"/"epi")
 
@@ -29,7 +29,8 @@ def curves_from_labels(label4d: np.ndarray, frames: list[int], n_points: int = S
             blood = lab == L.LV_BLOODPOOL
             lv = blood | (lab == L.LV_MYOCARDIUM) | (lab == L.SCAR)
             for name, mask in (("endo", blood), ("epi", lv)):
-                c = mask_to_curve(mask, n_points)
+                # epicardium: smoother (anatomically smooth surface) and evenly spaced, no tip points
+                c = mask_to_curve(mask, n_points) if name == "endo" else mask_to_curve(mask, 16, None, smooth_px=3.0)
                 if c is not None:
                     out[(t, z, name)] = c.control
     return out
@@ -43,6 +44,35 @@ def labels_from_curves(endo: np.ndarray | None, epi: np.ndarray | None, shape: t
     if endo is not None:
         lab[curve_to_mask(Curve(endo, spline_through(endo)), shape)] = L.LV_BLOODPOOL
     return lab
+
+
+def smooth_points(control: np.ndarray, which: np.ndarray | None = None, strength: float = 0.5,
+                  passes: int = 2) -> np.ndarray:
+    """Smooth a closed contour's control points (Taubin smoothing: no shrinkage).
+
+    Each point moves toward the midpoint of its neighbours (strength lambda), then
+    a slightly stronger step back (mu) cancels the shrinking that plain averaging
+    causes. `which` (boolean mask) limits the change to selected points. When the
+    whole contour is smoothed, it is rescaled to keep its exact area.
+    """
+    from ..contours import polygon_area
+
+    pts = control.astype(float).copy()
+    sel = np.ones(len(pts), bool) if which is None else np.asarray(which, bool)
+    if len(pts) < 4 or not sel.any():
+        return pts
+    a0 = polygon_area(pts)
+    lam, mu = strength, -(strength + 0.03)
+    for _ in range(passes):
+        for f in (lam, mu):
+            mid = 0.5 * (np.roll(pts, 1, axis=0) + np.roll(pts, -1, axis=0))
+            pts[sel] = pts[sel] + f * (mid[sel] - pts[sel])
+    if which is None:
+        a1 = polygon_area(pts)
+        if a1 > 0:
+            c = pts.mean(axis=0)
+            pts = c + (pts - c) * np.sqrt(a0 / a1)
+    return pts
 
 
 def insert_point(control: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -68,12 +98,15 @@ class CurveEditor:
         self.points = None
         self.shapes = None
         self.add_to = "endo"  # contour that newly added points join
+        self._undo: list[tuple[dict, set, set]] = []
+        self.hidden: set[tuple[int, int]] = set()  # (frame, slice) whose points are hidden after smoothing
 
     # ---------- layers ----------
 
     def show(self, curves: dict[Key, np.ndarray]) -> None:
         self.curves = {k: v.copy() for k, v in curves.items()}
         self.edited.clear()
+        self.hidden.clear()
         for name in ("curves", "control points"):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(name)
@@ -90,6 +123,8 @@ class CurveEditor:
         coords, keys = [], []
         for key, ctrl in sorted(self.curves.items()):
             t, z, _ = key
+            if (t, z) in self.hidden:
+                continue
             for x, y in ctrl:
                 coords.append((t, z, y, x))
                 keys.append(key)
@@ -135,6 +170,9 @@ class CurveEditor:
                 built[key] = insert_point(built[key], p) if key in built else np.array([p])
         else:  # deleted points: napari keeps the remaining rows in order but we lost the mapping
             built = self._match_after_delete(data)
+        for k, v in self.curves.items():  # contours on hidden slices are not in the points layer
+            if (k[0], k[1]) in self.hidden:
+                built[k] = v
         changed = {k for k in set(built) | set(self.curves)
                    if k not in self.curves or k not in built or not np.array_equal(built[k], self.curves[k])}
         self.curves = {k: v for k, v in built.items() if len(v) >= 4}
@@ -150,6 +188,72 @@ class CurveEditor:
             j = same[np.argmin(np.linalg.norm(old[same, 2:] - row[2:], axis=1))]
             built.setdefault(keys[j], []).append((row[3], row[2]))
         return {k: np.array(v) for k, v in built.items()}
+
+    def smooth(self, frame: int, slice_: int, selected_rows: set[int] | None = None) -> int:
+        """Smooth the selected points, or both contours on this slice and frame if none are selected.
+
+        Returns the number of contours changed.
+        """
+        changed = 0
+        snapshot = ({k: v.copy() for k, v in self.curves.items()}, set(self.edited), set(self.hidden))
+        rows_by_key: dict[Key, list[int]] = {}
+        for row, key in enumerate(self._keys):
+            rows_by_key.setdefault(key, []).append(row)
+        for key, rows in rows_by_key.items():
+            t, z, _ = key
+            if selected_rows:
+                which = np.array([r in selected_rows for r in rows])
+                if not which.any():
+                    continue
+                self.curves[key] = smooth_points(self.curves[key], which)
+            elif (t, z) == (frame, slice_):
+                self.curves[key] = smooth_points(self.curves[key])
+            else:
+                continue
+            self.edited.add(key)
+            changed += 1
+        if changed:
+            self._undo.append(snapshot)
+            del self._undo[:-20]
+            self._refresh_layers()
+        return changed
+
+    def smooth_and_hide(self, frame: int, slice_: int, passes: int = 1, strength: float = 0.3) -> int:
+        """Segment-style: smooth both contours on one slice and hide that slice's points."""
+        keys = [k for k in self.curves if (k[0], k[1]) == (frame, slice_)]
+        if not keys:
+            return 0
+        self._undo.append(({k: v.copy() for k, v in self.curves.items()}, set(self.edited), set(self.hidden)))
+        del self._undo[:-20]
+        for key in keys:
+            self.curves[key] = smooth_points(self.curves[key], strength=strength, passes=passes)
+            self.edited.add(key)
+        self.hidden.add((frame, slice_))
+        self._refresh_layers()
+        return len(keys)
+
+    def show_slice_points(self, frame: int, slice_: int) -> None:
+        """Bring back the points on one slice for editing."""
+        if (frame, slice_) in self.hidden:
+            self.hidden.discard((frame, slice_))
+            self._refresh_layers()
+
+    def show_points(self, on: bool) -> None:
+        if self.points is not None:
+            self.points.visible = on
+            if on:
+                self.viewer.layers.selection.active = self.points
+
+    def undo(self) -> bool:
+        """Revert the last smoothing step."""
+        if not self._undo:
+            return False
+        snap = self._undo.pop()
+        self.curves, self.edited = snap[0], snap[1]
+        if len(snap) > 2:
+            self.hidden = snap[2]
+        self._refresh_layers()
+        return True
 
     def apply_to(self, label4d: np.ndarray) -> np.ndarray:
         """Write edited slices back into a (x, y, slice, time) label array; returns a new array."""

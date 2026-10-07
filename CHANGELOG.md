@@ -3,9 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Auto-contour (`autocontour.py`, app button): UCL or Calico model on every frame, sanity flags and optional two-model disagreement flags, ED/ES suggested from the volume curve, volume-over-time plot in the app. Models are user-installed (`docs/models.md`).
+- App: play cine, Set ED/ES at the current frame; open a UCL file as a raw cine.
+- `papillary.py`: experimental conversion of detailed contours to papillary-in-blood-pool (off by default).
 - napari app (v0 prototype): `ventrimap` command or Plugins > VentriMap. Open a UCL file or DICOM folder, see contours over the images, set slice order by hand (flip, drag, leave slices out; warnings if the order looks reversed or contradicts scanner positions), edit contours with napari's brush, compute volumes/EF/mass and wall-thickness bullseyes, export CSV. Install with `pip install -e ".[app]"`.
 - `contours.py`: mask <-> smooth curve conversion (adaptive control points, centripetal Catmull-Rom), exact curve areas; `scripts/curve_conversion_test.py`.
 - App: slices chosen separately for ED and ES, with suggested choices and the reason for each (no contour, apical cap, basal slices flagged for checking when the drawn ring does not look like muscle).
+- App: Snap to edge button (per slice): grows the endocardium into bright blood the model rounded off; tested on UCL test mice (helps EDV/mass, over-grows at ES, so manual, not automatic).
+- App: Smooth button, Segment-style: smooths both contours on the slice being viewed (gentle, area-preserving) and hides that slice's points; Edit points brings them back; Undo.
 - App: Segment-style curve editing (drag control points; add/delete points; pixel brush as fallback).
 - `compute_wall(..., base_end=)` to set orientation by hand.
 - `scripts/run_cohort.py`: one-row-per-mouse summary for a whole dataset.

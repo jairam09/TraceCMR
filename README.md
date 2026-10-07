@@ -21,9 +21,10 @@ Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regiona
 | Detect base vs apex, reorder slices, assign basal/mid/apical levels | Working (v0.1.1) |
 | Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Working (v0.2, radial-ray method) |
 | Read cine series from DICOM (classic and enhanced multi-frame) | Working (v0.2, tested on synthetic data) |
+| Desktop app (napari): cine playback, ED/ES marking, slice order and per-phase slice choice, drag-point contour editing, compute | Working (prototype) |
+| Automatic contouring with published models (UCL, Calico), review flags, ED/ES from the volume curve | Working (prototype; models installed separately, see docs/models.md) |
 | Track the same mouse across scans (per-segment change maps) | Planned |
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
-| Automatic segmentation (existing models, then nnU-Net) | Planned |
 | Bruker ParaVision and Segment (.mat) input | Planned |
 
 ## Install
@@ -34,6 +35,8 @@ cd ventrimap
 pip install -e ".[dev]"
 pytest            # all tests should pass
 ```
+
+To use the app: `pip install -e ".[app]"`, then run `ventrimap` (or open it from napari's Plugins menu). Auto-contour models are optional downloads: see [docs/models.md](docs/models.md).
 
 ## Quick start
 

@@ -2,6 +2,25 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-07 (auto-contour in the app)
+
+- Built `autocontour.py` (UCL and Calico backends loaded from the user's own downloads; sanity flags; two-model disagreement flags) and the app's Auto-contour button, raw-cine opening, and a volume-over-time plot.
+- End-to-end on UCL Mouse40 opened as a raw cine: 21 frames contoured in ~4 min on a 2-core CPU; ED/ES found at frames 0 and 9 (expert's frames); EF 79.1% vs expert 79.1%; EDV 55.7 vs 56.5 uL. Mouse40 may be in the model's training set, so this checks the workflow, not accuracy. The model also contoured the top slice at ED (not contoured by the expert): basal check should flag this more clearly (to do).
+- Papillary smoothing (`papillary.py`) tried as the default per the author's decision: fills papillary slits at ED but eats compact wall where thickness varies, mostly at ES (+19% ESV on 30 mice). Kept experimental and off by default until tuned against hand-drawn smooth contours. Author's UCL mice contoured in Segment style would provide that ground truth.
+- Running TensorFlow and PyTorch models in one process exceeds 8 GB; the double-check option needs more memory.
+- Author review of auto-contours: better than Segment's AI in his opinion; a few errors, e.g. an endocardial tip cut off. Checked: the cut is in the model's mask itself, not the curve fit. Idea: "snap to edge" refinement.
+- Snap to edge built and tested on UCL's 25 test mice: better EDV and mass, worse ESV at ES, EF unchanged within noise. Made a per-slice button rather than automatic. Smooth button changed to Segment-style (current slice, hides points) on author feedback; epicardium smoothed more (author spotted a model-mask indent).
+- Control points v3 (author: points bunched at pixel steps): smooth outline (area-preserving), 18 even points, extras only at sharp tips with a 4 px minimum gap. 130-mouse test: within ~1% of pixel results, EF within 0.5 pts.
+
+## 2026-10-07 (auto-contour model comparison, preliminary)
+
+- Calico model (MIT, 3D, LV+myo+RV) set up: weights from the public repo (checksum matches). Runs on UCL after resampling to 0.13 mm / 0.8 mm; orientation does not matter. CPU only here: ~14 s per frame, so ~5 min per 20-frame scan without a GPU.
+- UCL model (GPL, 2D UNet3+) run on its own 25 held-out test mice (split reproduced from their notebook, seed 42).
+- On those 25 mice: UCL Dice blood 0.91/0.87 (ED/ES), myo 0.84/0.87, EF error mean -1.0 pts (worst 5.7). Calico (21 of the 25 done) Dice blood 0.87/0.85, myo 0.78/0.82, EF error mean -5.0 (worst 72). Calico on 45 mice so far: 4 with |EF error| > 10 pts (one missed ES, three badly dilated hearts).
+- Caveat: UCL's model is on home data (same scanner and lab); the fair test is outside data. Remaining 85 Calico mice to run.
+- Provisional plan: UCL model as default (optional separate install because of GPL), Calico as option (RV for the septal reference); flag slices where the two models disagree.
+- Author decision: default analysis convention = papillary muscles in the blood pool (smooth), detailed mask kept for one-click switching.
+
 ## 2026-10-07 (ED/ES from raw cines)
 
 - Author: Bruker gives raw cines, so ED/ES must be identified before analysis. Tried an image-only estimate (bright-blood pixel count inside the ED epicardium, summed over slices, per frame) on 130 UCL mice: ED within 1 frame of the expert's frame in 94%, ES in only 46%. Not good enough to choose ES automatically. Plan: user scrubs the cine and marks ED/ES (as in Segment); automatic suggestion from the volume curve once auto-contour has contoured every frame.

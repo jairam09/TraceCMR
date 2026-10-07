@@ -21,7 +21,7 @@ from ventrimap import labels as L
 from ventrimap.contours import mask_area_by_curve
 from ventrimap.datasets import load_ucl
 
-SETTINGS = {"pixels": "pixels", "outline": (None, None), "adaptive": (16, 1.0), "32pt": (32, None),
+SETTINGS = {"pixels": "pixels", "outline": (None, None), "default": (18, 1.5), "32pt": (32, None),
             "24pt": (24, None), "16pt": (16, None), "12pt": (12, None)}
 DENSITY = 1.05  # g/mL
 

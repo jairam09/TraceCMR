@@ -106,18 +106,78 @@ def _adaptive_control(b: np.ndarray, n_start: int, tol_px: float, max_points: in
         idx = sorted(idx + [worst])
 
 
+def _smooth_outline(b: np.ndarray, sigma_px: float = 1.5) -> np.ndarray:
+    """Remove the pixel staircase from a closed outline (Gaussian along the curve, wrap-around)."""
+    from scipy.ndimage import gaussian_filter1d
+
+    seg = np.hypot(*np.diff(np.vstack([b, b[:1]]), axis=0).T)
+    step = max(float(np.median(seg)), 1e-6)
+    sig = sigma_px / step
+    sm = np.column_stack([gaussian_filter1d(b[:, 0], sig, mode="wrap"), gaussian_filter1d(b[:, 1], sig, mode="wrap")])
+    # Smoothing a closed curve shrinks it; rescale about the centroid to keep the original area
+    # (without this, small end-systolic cavities read up to ~5% small).
+    a0, a1 = polygon_area(b), polygon_area(sm)
+    if a1 > 0:
+        c = sm.mean(axis=0)
+        sm = c + (sm - c) * np.sqrt(a0 / a1)
+    return sm
+
+
+def _even_with_tips(b: np.ndarray, n_points: int, tip_tol_px: float, min_gap_px: float, max_extra: int) -> np.ndarray:
+    """Evenly spaced control points, plus a few at genuinely sharp tips.
+
+    b is a smoothed outline. A tip point is added where the curve through the even
+    points misses the outline by more than tip_tol_px, and only if it is at least
+    min_gap_px from every existing point, so points never bunch up.
+    """
+    from scipy.spatial import cKDTree
+
+    closed = np.vstack([b, b[:1]])
+    s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(closed, axis=0).T))])
+    perim = s[-1]
+    n = int(max(8, min(n_points, perim / max(min_gap_px, 1e-6))))
+    pos = list(np.linspace(0, perim, n, endpoint=False))
+    for _ in range(max_extra):
+        ctrl = np.column_stack([np.interp(pos, s, closed[:, 0]), np.interp(pos, s, closed[:, 1])])
+        dense = spline_through(ctrl, max(400, 4 * len(b)))
+        dist, _ = cKDTree(dense).query(b)
+        order = np.argsort(dist)[::-1]
+        added = False
+        for i in order[: max(1, len(order) // 20)]:
+            if dist[i] <= tip_tol_px:
+                break
+            cand = s[i]
+            gaps = np.abs(np.array(pos) - cand)
+            gaps = np.minimum(gaps, perim - gaps)
+            if gaps.min() >= min_gap_px:
+                pos = sorted(pos + [cand])
+                added = True
+                break
+        if not added:
+            break
+    return np.column_stack([np.interp(pos, s, closed[:, 0]), np.interp(pos, s, closed[:, 1])])
+
+
 def mask_to_curve(
     mask: np.ndarray,
-    n_points: int | None = 16,
-    tol_px: float | None = 1.0,
-    max_points: int = 40,
+    n_points: int | None = 18,
+    tol_px: float | None = 1.5,
+    max_points: int = 26,
+    min_gap_px: float = 4.0,
+    smooth_px: float = 1.5,
 ) -> Curve | None:
     """Fit a smooth closed curve to a mask's outer boundary.
 
-    By default control points are placed adaptively: start with n_points evenly
-    spaced, then add points where the curve strays more than tol_px from the
-    outline (tips, notches), up to max_points. tol_px=None gives exactly n_points
-    evenly spaced points. n_points=None keeps the full sub-pixel boundary.
+    Default: the outline is smoothed (removing the pixel staircase), then n_points
+    control points are spaced evenly along it, plus extra points only at genuinely
+    sharp tips (where the curve would miss the outline by more than tol_px), never
+    closer than min_gap_px to another point, up to max_points in total. This keeps
+    points easy to grab while still following tips (author feedback, 2026-10-07:
+    points clustered at pixel steps were hard to edit).
+    tol_px=None: exactly n_points evenly spaced. n_points=None: the raw sub-pixel outline.
+    smooth_px: how much to smooth the outline first. The epicardium is anatomically
+    smooth (no papillary muscles), so the editor smooths it more (3 px) to iron out
+    small model wobbles; the endocardium keeps 1.5 px so real detail survives.
     Holes inside the mask are ignored here; `mask_area_by_curve` accounts for them.
     """
     b = _outer_boundary(mask)
@@ -125,10 +185,14 @@ def mask_to_curve(
         return None
     if n_points is None:
         return Curve(control=b, dense=b)
-    if tol_px is None or len(b) <= n_points:
+    if len(b) <= n_points:
         ctrl = resample_closed(b, min(n_points, len(b)))
+        return Curve(control=ctrl, dense=spline_through(ctrl))
+    sm = _smooth_outline(b, smooth_px)
+    if tol_px is None:
+        ctrl = resample_closed(sm, n_points)
     else:
-        ctrl = _adaptive_control(b, n_points, tol_px, max_points)
+        ctrl = _even_with_tips(sm, n_points, tol_px, min_gap_px, max(0, max_points - n_points))
     return Curve(control=ctrl, dense=spline_through(ctrl))
 
 
@@ -146,7 +210,7 @@ def _filled(mask: np.ndarray) -> np.ndarray:
     return ndimage.binary_fill_holes(mask)
 
 
-def mask_area_by_curve(mask: np.ndarray, n_points: int | None = 16, tol_px: float | None = 1.0) -> float:
+def mask_area_by_curve(mask: np.ndarray, n_points: int | None = 18, tol_px: float | None = 1.5) -> float:
     """Area (pixel units) of a mask measured from a curve fitted to its outline.
 
     Interior holes (e.g. a papillary muscle drawn as an island) are subtracted by
