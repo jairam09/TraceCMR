@@ -39,6 +39,14 @@ Check a real mouse from the [UCL open dataset](docs/datasets.md#ucl-dataset):
 python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ED --out data/checks
 ```
 
+Compute EDV, ESV, SV, EF and LV mass for every downloaded UCL mouse:
+
+```bash
+python scripts/run_volumes.py --ucl-dir data/ucl/Data --out results/ucl_volumes.csv
+```
+
+Results record the papillary muscle convention of the labels (UCL: papillary muscles counted as myocardium). The pipeline refuses to compare results across conventions; see [docs/methods.md](docs/methods.md).
+
 Check a human dataset (example: one ACDC subject, which uses its own label numbers):
 
 ```bash
