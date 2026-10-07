@@ -4,7 +4,7 @@ No data is committed to this repository. Download each dataset yourself into `da
 
 | Dataset | Species / sequence | Labels | Access | License | Loader |
 | --- | --- | --- | --- | --- | --- |
-| UCL open mouse cardiac MRI | Mouse, 9.4 T cine SAX, 130 mice (39 control, 11 MI + biomaterial patch, 51 DCM, 29 TAC) | LV blood pool + LV myocardium at ED and ES (no RV, no LGE) | https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation | Paper states CC BY 4.0; repository is labeled GPL-3.0 (see note) | `mcmr.datasets.load_ucl` |
+| UCL open mouse cardiac MRI | Mouse, 9.4 T cine SAX, 130 mice (39 control, 11 MI + biomaterial patch, 51 DCM, 29 TAC) | LV blood pool + LV myocardium at ED and ES (no RV, no LGE) | https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation | Paper states CC BY 4.0; repository is labeled GPL-3.0 (see note) | `ventrimap.datasets.load_ucl` |
 | ACDC | Human, short-axis cine | RV, LV myocardium, LV cavity at ED and ES | Register at https://acdc.creatis.insa-lyon.fr/ | Check terms on site before redistributing | `load_nifti(..., label_map="acdc")` |
 | EMIDEC | Human, short-axis LGE | Myocardium, infarct, MVO | http://emidec.com/ | CC-BY-NC-SA | To add |
 | CMR-MULTI | Human cine + LGE, incl. scar | Chambers, myocardium, scar | https://huggingface.co/datasets/cxhQAQ/CMR-MULTI | Non-commercial research only | Optional |

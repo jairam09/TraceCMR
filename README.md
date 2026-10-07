@@ -1,8 +1,15 @@
-# mouse-cmr-pipeline
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ventrimap-logo-dark.svg">
+    <img src="docs/assets/ventrimap-logo.svg" alt="VentriMap" width="320">
+  </picture>
+</p>
 
-Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening, and LGE scar quantification.
+# VentriMap
 
-> **Status: early development (v0.2.0).** Data loading (UCL, NIfTI, DICOM), sanity checks, overlays, global LV function (volumes, EF, mass) and regional wall thickness work. Scar and longitudinal tracking are in progress. Not yet validated for research use.
+Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening maps, and (planned) tracking the same heart across scans and LGE scar quantification.
+
+> **Status: early development (v0.3.0).** Data loading (UCL, NIfTI, DICOM), sanity checks, overlays, global LV function (volumes, EF, mass) and regional wall thickness work. Scar and longitudinal tracking are in progress. Not yet validated for research use.
 
 ## What it will do
 
@@ -22,8 +29,8 @@ Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and 
 ## Install
 
 ```bash
-git clone https://github.com/<your-username>/mouse-cmr-pipeline.git
-cd mouse-cmr-pipeline
+git clone https://github.com/jairam09/ventrimap.git
+cd ventrimap
 pip install -e ".[dev]"
 pytest            # all tests should pass
 ```
@@ -76,7 +83,7 @@ This prints shape, voxel spacing, label volumes and warnings, and saves an overl
 In Python:
 
 ```python
-from mcmr import load_nifti, sanity_check
+from ventrimap import load_nifti, sanity_check
 ci = load_nifti("image.nii.gz", "label.nii.gz", label_map="acdc")
 print(ci.spacing, ci.labels_present())
 print(sanity_check(ci, species="human"))
@@ -84,7 +91,7 @@ print(sanity_check(ci, species="human"))
 
 ## Conventions
 
-All data is translated into one label scheme on load (`src/mcmr/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Arrays are indexed `(x, y, slice)`; spacing is in mm, and volumes are in µL (1 mm³ = 1 µL). Analysis conventions are documented in [docs/methods.md](docs/methods.md).
+All data is translated into one label scheme on load (`src/ventrimap/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Arrays are indexed `(x, y, slice)`; spacing is in mm, and volumes are in µL (1 mm³ = 1 µL). Analysis conventions are documented in [docs/methods.md](docs/methods.md).
 
 ## Data
 

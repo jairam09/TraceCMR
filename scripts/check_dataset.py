@@ -23,12 +23,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mcmr import labels as L
-from mcmr.datasets import load_ucl
-from mcmr.dicom import load_dicom_cine
-from mcmr.io import load_nifti, sanity_check
-from mcmr.synthetic import ring_phantom
-from mcmr.viz import save_overlay
+from ventrimap import labels as L
+from ventrimap.datasets import load_ucl
+from ventrimap.dicom import load_dicom_cine
+from ventrimap.io import load_nifti, sanity_check
+from ventrimap.synthetic import ring_phantom
+from ventrimap.viz import save_overlay
 
 
 def main() -> None:

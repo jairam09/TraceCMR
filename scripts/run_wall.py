@@ -16,10 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
-from mcmr.datasets import load_ucl
-from mcmr.orientation import OrientationUncertain
-from mcmr.viz import save_bullseye
-from mcmr.wall import compute_wall
+from ventrimap.datasets import load_ucl
+from ventrimap.orientation import OrientationUncertain
+from ventrimap.viz import save_bullseye
+from ventrimap.wall import compute_wall
 
 
 def mouse_number(p: Path) -> int:

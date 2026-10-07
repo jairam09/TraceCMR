@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mouse-cmr-pipeline"
-version = "0.2.0"
-description = "Open-source analysis pipeline for mouse cardiac MRI: volumes, regional wall thickness, and LGE scar"
+name = "ventrimap"
+version = "0.3.0"
+description = "VentriMap: open-source analysis for mouse cardiac MRI (volumes, regional wall thickness, LGE scar)"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Jaikrishnan Ram" }]

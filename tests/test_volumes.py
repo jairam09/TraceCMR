@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from mcmr import labels as L
-from mcmr.synthetic import ring_phantom, ring_phantom_truth
-from mcmr.volumes import (
+from ventrimap import labels as L
+from ventrimap.synthetic import ring_phantom, ring_phantom_truth
+from ventrimap.volumes import (
     MYOCARDIAL_DENSITY_G_PER_ML,
     check_comparable,
     compute_function,

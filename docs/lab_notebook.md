@@ -2,6 +2,13 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-07 (name, logo, demo)
+
+- Renamed the project VentriMap (package `ventrimap`). Name check: no existing tool called VentriMap; free on PyPI. Similar names in human cardiology (Vektor vMap, Ventripoint) are different products.
+- Logo: first try (16-segment bullseye) rejected as too busy. Final: the LV seen from the side as a V, built from horizontal bars like a stack of short-axis slices, with the endocardial contour in oxblood. Animated version thickens the wall in systole (what VentriMap measures); static version for README, paper and favicon. Wordmark outlined from Inter Display SemiBold (OFL).
+- Built a web demo of the pipeline on Mouse40, 1, 90 and 60 (load/check, base-apex, contours, volumes, wall rays, bullseyes).
+- Fixed: repo bullseye plots were mirrored relative to the image; now clockwise from 3 o'clock like the demo.
+
 ## 2026-10-07 (wall thickness + DICOM)
 
 - Direction decided overnight: one app (napari plugin) combining auto-contour, manual correction and analysis; flagship feature = tracking the same mouse across scans. Build order: Segment AI check -> wall thickness -> longitudinal -> scar -> auto-contour -> app.

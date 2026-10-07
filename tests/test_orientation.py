@@ -2,7 +2,7 @@
 
 The last test compares against visual (anatomical) labels for 16 UCL mice in
 tests/data/ucl_orientation_truth.csv; it runs only with real data:
-    MCMR_UCL_DATA=data/ucl/Data pytest tests/test_orientation.py
+    VENTRIMAP_UCL_DATA=data/ucl/Data pytest tests/test_orientation.py
 """
 
 import csv
@@ -12,15 +12,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mcmr import labels as L
-from mcmr.orientation import (
+from ventrimap import labels as L
+from ventrimap.orientation import (
     OrientationUncertain,
     assign_levels,
     detect_base_apex,
     detect_for_heart,
     to_base_first,
 )
-from mcmr.synthetic import ring_phantom, tapered_phantom
+from ventrimap.synthetic import ring_phantom, tapered_phantom
 
 
 @pytest.mark.parametrize("cap", [True, False])
@@ -64,7 +64,7 @@ def test_levels_split_into_thirds_plus_cap():
     )
 
 
-UCL_DIR = os.environ.get("MCMR_UCL_DATA")
+UCL_DIR = os.environ.get("VENTRIMAP_UCL_DATA")
 TRUTH = Path(__file__).parent / "data" / "ucl_orientation_truth.csv"
 
 
@@ -84,21 +84,21 @@ def _truth_rows():
     return [r for r in csv.DictReader(open(TRUTH)) if (Path(UCL_DIR) / f"{r['subject_id']}.h5").exists()]
 
 
-@pytest.mark.skipif(not UCL_DIR, reason="set MCMR_UCL_DATA to a folder of UCL .h5 files")
+@pytest.mark.skipif(not UCL_DIR, reason="set VENTRIMAP_UCL_DATA to a folder of UCL .h5 files")
 def test_matches_visual_labels_on_ucl():
-    from mcmr.datasets import load_ucl
+    from ventrimap.datasets import load_ucl
 
     rows = _truth_rows()
-    assert rows, "none of the truth-file mice are in MCMR_UCL_DATA"
+    assert rows, "none of the truth-file mice are in VENTRIMAP_UCL_DATA"
     for row in rows:
         p = Path(UCL_DIR) / f"{row['subject_id']}.h5"
         r = detect_for_heart(load_ucl(p, "ED"), load_ucl(p, "ES"))
         assert r.base_end == row["base_end"], row["subject_id"]
 
 
-@pytest.mark.skipif(not UCL_DIR, reason="set MCMR_UCL_DATA to a folder of UCL .h5 files")
+@pytest.mark.skipif(not UCL_DIR, reason="set VENTRIMAP_UCL_DATA to a folder of UCL .h5 files")
 def test_single_phase_may_refuse_but_never_errs():
-    from mcmr.datasets import load_ucl
+    from ventrimap.datasets import load_ucl
 
     for row in _truth_rows():
         for phase in ("ED", "ES"):

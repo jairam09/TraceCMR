@@ -7,7 +7,7 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Arrays are indexed `(x, y, slice)`, one cardiac phase per `CardiacImage`.
 - Spacing is `(dx, dy, dz)` in mm, read from the file header. `dz` is the center-to-center slice distance (slice thickness + gap).
 - Volumes are in µL (1 mm³ = 1 µL). Human results may also be shown in mL.
-- Labels use one internal scheme (`src/mcmr/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Loaders translate each dataset's numbers and refuse unknown values rather than guessing.
+- Labels use one internal scheme (`src/ventrimap/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Loaders translate each dataset's numbers and refuse unknown values rather than guessing.
 
 ## Dataset-specific facts (decided by the source, not by us)
 

@@ -49,12 +49,15 @@ def save_bullseye(
 
     `values` maps level -> per-segment values (6 basal, 6 mid, 4 apical).
     Segment 1 starts at the reference angle (3 o'clock = image x-axis) and runs
-    counter-clockwise. Missing levels are drawn grey.
+    clockwise, matching the image (y points down), so a segment sits where it
+    appears on the scan. Missing levels are drawn grey.
     """
     out_path = Path(out_path)
     rings = [("basal", 3.0, 2.0), ("mid", 2.0, 1.0), ("apical", 1.0, 0.25)]
     fig = plt.figure(figsize=(4.6, 4.2))
     ax = fig.add_subplot(projection="polar")
+    ax.set_theta_zero_location("E")
+    ax.set_theta_direction(-1)  # clockwise: image y axis points down
     cm = plt.get_cmap(cmap)
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     for level, outer, inner in rings:

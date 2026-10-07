@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from mcmr import labels as L
-from mcmr.synthetic import ring_phantom, tapered_phantom
-from mcmr.wall import (
+from ventrimap import labels as L
+from ventrimap.synthetic import ring_phantom, tapered_phantom
+from ventrimap.wall import (
     SEGMENTS_PER_LEVEL,
     compute_wall,
     heart_wall,

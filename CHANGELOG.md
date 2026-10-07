@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0] - 2026-10-07
+
+### Changed
+- Project renamed to **VentriMap**. Python package renamed `mcmr` -> `ventrimap` (imports change: `from ventrimap import ...`). Real-data test variable renamed `MCMR_UCL_DATA` -> `VENTRIMAP_UCL_DATA`. Entries below use the new names.
+- Bullseye plots now run clockwise from 3 o'clock, matching how segments appear in the image (previously mirrored).
+
+### Added
+- VentriMap logo (`docs/assets/`): slice-stack V with the endocardial contour, light and dark, static and animated, plus an app icon.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
@@ -33,9 +42,9 @@
 ## [0.0.2] - 2026-10-06
 
 ### Added
-- Loader for the UCL open mouse cardiac MRI dataset (`mcmr.datasets.load_ucl`), with ED/ES detection and the dataset's label scheme.
+- Loader for the UCL open mouse cardiac MRI dataset (`ventrimap.datasets.load_ucl`), with ED/ES detection and the dataset's label scheme.
 - `check_dataset.py --ucl` option.
-- Tests for the UCL loader on synthetic UCL-format files, plus an optional real-data test (`MCMR_UCL_DATA`).
+- Tests for the UCL loader on synthetic UCL-format files, plus an optional real-data test (`VENTRIMAP_UCL_DATA`).
 - `h5py` dependency.
 
 ## [0.0.1] - 2026-10-06
