@@ -25,3 +25,6 @@ env/
 *.nii.gz
 *.dcm
 2dseq
+
+# Analysis outputs (regenerate from data)
+results/

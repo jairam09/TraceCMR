@@ -2,6 +2,15 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-06 (Phase 2 start)
+
+- Papillary convention: UCL labels papillary muscles as myocardium; my Segment SOP puts them inside the endo contour (blood pool). Tried converting UCL labels: closing barely changes ESV (papillary muscles look like wall at ES); convex hull upper bound shifts EDV +13%, ESV +18%, mass -9%. Decision: track the convention on every dataset, never convert, refuse cross-convention comparisons.
+- Built `volumes.py` and `run_volumes.py`. 16 UCL mice (1, 2, 3, 10, 20 ... 130): EDV median 67.9 uL (44.8-157.1), ESV 28.1 (9.9-110.5), EF 61.4% (29.6-81.3), mass 103.8 mg (75.4-129.8). No QC flags.
+- Independent check with raw h5py: identical EDV/ESV for all 16.
+- Mouse60 (EDV 157, EF 30%): overlay shows a dilated thin-walled LV with good contours, consistent with the DCM group, not a bug.
+- Found: slice order varies (13 base-first, 3 apex-first). Must solve before Phase 3.
+- Next: robust base/apex detection; then wall thickness v1 (radial rays) on phantoms.
+
 ## 2026-10-06 (later)
 
 - Found that the UCL mouse dataset is public (JCMR, Feb 2026): 130 mice, 9.4 T cine, LV blood pool + myocardium at ED/ES. Repo: mrphys/Open-Source_Pre-Clinical_Segmentation.

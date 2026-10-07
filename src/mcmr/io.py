@@ -14,6 +14,12 @@ import numpy as np
 
 from . import labels as L
 
+# "myocardium": papillary muscles/trabeculae labeled as myocardium (excluded from blood pool),
+#               e.g. the UCL mouse dataset.
+# "blood_pool": endocardial contour drawn around them, so they count as blood pool,
+#               e.g. a Segment SOP that contours the compact wall only.
+PAPILLARY_CONVENTIONS = ("myocardium", "blood_pool", None)
+
 
 @dataclass
 class CardiacImage:
@@ -29,8 +35,14 @@ class CardiacImage:
     subject_id: str = "unknown"
     phase: str | None = None  # e.g. "ED" or "ES"
     affine: np.ndarray = field(default_factory=lambda: np.eye(4))
+    # How the labels treat papillary muscles and trabeculae. This cannot be reliably
+    # converted after contouring, so it is carried with the data and checked whenever
+    # results are combined or compared. None = unknown.
+    papillary: str | None = None
 
     def __post_init__(self) -> None:
+        if self.papillary not in PAPILLARY_CONVENTIONS:
+            raise ValueError(f"papillary must be one of {PAPILLARY_CONVENTIONS}, got {self.papillary!r}")
         if self.image.ndim != 3:
             raise ValueError(f"image must be 3D (x, y, slice), got shape {self.image.shape}")
         if self.label is not None and self.label.shape != self.image.shape:
@@ -85,6 +97,7 @@ def load_nifti(
     frame: int | None = None,
     subject_id: str | None = None,
     phase: str | None = None,
+    papillary: str | None = None,
 ) -> CardiacImage:
     """Load a NIfTI image (and optional label file) into a CardiacImage.
 
@@ -95,6 +108,7 @@ def load_nifti(
         frame: for 4D cine files (x, y, slice, time), which time frame to take.
         subject_id: defaults to the image file name.
         phase: optional tag such as "ED" or "ES".
+        papillary: "myocardium", "blood_pool", or None if unknown. Set it whenever you know.
     """
     image_path = Path(image_path)
     img = nib.load(str(image_path))
@@ -137,6 +151,7 @@ def load_nifti(
         subject_id=subject_id,
         phase=phase,
         affine=np.asarray(img.affine),
+        papillary=papillary,
     )
 
 

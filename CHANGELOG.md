@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.0] - 2026-10-06
+
+### Added
+- `volumes.py`: EDV, ESV, SV, EF, LV mass (ED and ES), per-slice blood pool areas, QC flags.
+- Papillary muscle convention tracked on every `CardiacImage` (`papillary`); mixing or comparing across conventions is refused unless explicitly allowed.
+- `scripts/run_volumes.py`: batch volumes for a folder of UCL mice, written to CSV with a summary.
+- Tests for volume geometry, spacing scaling, scar handling, QC flags and convention checks.
+
+### Checked
+- 16 UCL mice: results identical to an independent raw-file recomputation; EF 29.6-81.3%, no QC flags.
+
 ## [0.0.2] - 2026-10-06
 
 ### Added

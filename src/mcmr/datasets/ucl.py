@@ -101,4 +101,5 @@ def load_ucl(
         subject_id=path.stem,
         phase=phase if phase else f"frame{frame}",
         affine=np.diag([*spacing, 1.0]),
+        papillary="myocardium",  # per the paper: trabeculae and papillary muscles in the myocardium
     )
