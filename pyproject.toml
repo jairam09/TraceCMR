@@ -8,6 +8,7 @@ version = "0.1.1"
 description = "Open-source analysis pipeline for mouse cardiac MRI: volumes, regional wall thickness, and LGE scar"
 readme = "README.md"
 license = "MIT"
+authors = [{ name = "Jaikrishnan Ram" }]
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
