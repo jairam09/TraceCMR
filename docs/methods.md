@@ -37,11 +37,28 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Levels: slices with blood pool are split into thirds base -> apex (`np.array_split`, extra slices to basal then mid); myocardium-only slices beyond the apex are the apical cap.
 - Limitation: 16 mice with only 3 apex-first stacks. Re-validate on each new dataset.
 
-## Wall thickness (Phase 3, to decide)
+## Wall thickness (Phase 3, version 1 implemented in `wall.py`)
 
-- [ ] Radial rays (v1) vs centerline chords (v2).
-- [ ] Segment scheme: AHA 17-segment default; reference = anterior RV insertion point.
-- [ ] Assignment of slices to basal / mid / apical.
+- [x] **Radial rays.** Centre = blood-pool centroid; 120 rays (every 3 degrees). Along each ray, the endocardium is where the interpolated blood-pool mask first drops below 0.5 and the epicardium is where the interpolated LV mask (blood + myocardium + scar) drops below 0.5 beyond that. Sampling step 0.25 px with bilinear interpolation gives sub-pixel borders, important when a mouse wall is ~10 pixels thick. Rays with no valid wall are NaN.
+- [x] **Levels and segments.** Slices are ordered base-first using the per-heart orientation (`orientation.py`), split into basal / mid / apical thirds, and each level is divided into equal angular sectors in the AHA layout (6 basal, 6 mid, 4 apical). Each segment value = mean over rays in the sector, averaged over that level's slices.
+- [x] **Thickening** = (ESWT - EDWT) / EDWT x 100%, per level and segment. ED and ES are compared level by level, not slice by slice, because the base moves toward the apex in systole.
+- [x] **Checks.** Phantom rings: thickness within 0.04 mm of truth at every angle, independent of centre position, scaling correctly with spacing. Real data (16 UCL mice, 2026-10-07): ED wall 0.76-1.17 mm; mean thickening correlates with EF (r = 0.85); dilated Mouse60 has the thinnest mid/apical walls (0.45-0.66 mm) and low thickening.
+- **Known limitations (version 1):**
+  - Rays overestimate thickness where the wall is oblique to the ray. Version 2: centreline chords.
+  - Labels that count papillary muscles as myocardium (UCL) inflate thickness where they attach; visible as spikes in ray overlays (e.g. Mouse80 ED). Tested with a synthetic papillary bump.
+  - Basal thickening is least reliable: 10 of 11 negative-thickening segments across 16 mice were basal, where the most basal ES slice is a partial ring at the outflow tract. These segments are flagged, not hidden.
+  - Segments are numbered from the image x-axis, counter-clockwise. They are not AHA-named until a septal reference (RV insertion point) is available; UCL data has no RV labels.
+- [ ] Version 2: centreline chord method; compare with rays on ellipses and real hearts.
+- [ ] Septal reference from RV insertion (needs RV labels, e.g. ACDC or lab data).
+- [ ] Papillary-aware endocardial border for data labeled with papillary muscles as myocardium.
+
+## DICOM input (`dicom.py`)
+
+- Reads classic single-frame and enhanced multi-frame DICOM. Slice order from ImagePositionPatient projected on the slice normal; time order from TriggerTime / NominalCardiacTriggerDelayTime (fallback: instance number).
+- Pixel spacing from PixelSpacing (row spacing -> y, column spacing -> x); slice spacing = median distance between slice positions, so gaps are included.
+- Refuses incomplete grids (missing frames, mixed orientations or matrix sizes) instead of guessing.
+- Bug caught by tests during development: a trigger time of 0 ms was treated as missing, which scrambled time order. Fixed with an explicit missing-value check.
+- Tested only on synthetic series so far; needs one real Bruker DICOM export to confirm.
 
 ## Scar (Phase 4, to decide)
 

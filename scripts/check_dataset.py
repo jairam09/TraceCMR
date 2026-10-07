@@ -8,6 +8,9 @@ Examples:
     python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ED --out data/checks
     python scripts/check_dataset.py --ucl data/ucl/Data/Mouse1.h5 --frame ES --out data/checks
 
+    # A folder of DICOM files for one cine series (frame 0 by default):
+    python scripts/check_dataset.py --dicom path/to/series_folder --frame 0 --out data/checks
+
     # One ACDC subject (end-diastolic frame file + its ground truth):
     python scripts/check_dataset.py \
         --image data/acdc/patient001/patient001_frame01.nii.gz \
@@ -22,6 +25,7 @@ from pathlib import Path
 
 from mcmr import labels as L
 from mcmr.datasets import load_ucl
+from mcmr.dicom import load_dicom_cine
 from mcmr.io import load_nifti, sanity_check
 from mcmr.synthetic import ring_phantom
 from mcmr.viz import save_overlay
@@ -33,6 +37,7 @@ def main() -> None:
     p.add_argument("--label", type=Path, help="NIfTI label file (optional)")
     p.add_argument("--label-map", default="standard", choices=sorted(L.LABEL_MAPS), help="dataset label convention")
     p.add_argument("--ucl", type=Path, help="a MouseN.h5 file from the UCL open mouse dataset")
+    p.add_argument("--dicom", type=Path, help="a folder of DICOM files for one cine series (images only)")
     p.add_argument("--frame", default=None, help="time frame: an index for 4D NIfTI, or ED / ES / index for --ucl")
     p.add_argument("--species", default="mouse", choices=["mouse", "human"])
     p.add_argument("--phantom", action="store_true", help="use a synthetic phantom instead of a file")
@@ -46,6 +51,11 @@ def main() -> None:
         ci = ring_phantom(noise_sd=0.05)
     elif args.ucl is not None:
         ci = load_ucl(args.ucl, as_frame(args.frame) or "ED")
+    elif args.dicom is not None:
+        cine = load_dicom_cine(args.dicom)
+        print(f"DICOM cine: {cine.data.shape[2]} slices x {cine.data.shape[3]} frames, "
+              f"trigger times {cine.times_ms.min():.1f}-{cine.times_ms.max():.1f} ms")
+        ci = cine.frame(int(args.frame) if args.frame is not None else 0)
     elif args.image is None:
         p.error("give --image (and usually --label), --ucl, or --phantom")
     else:

@@ -2,7 +2,7 @@
 
 Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening, and LGE scar quantification.
 
-> **Status: early development (v0.1.1).** Data loading, sanity checks, overlays and global LV function (volumes, EF, mass) work. Wall thickness and scar are in progress. Not yet validated for research use.
+> **Status: early development (v0.2.0).** Data loading (UCL, NIfTI, DICOM), sanity checks, overlays, global LV function (volumes, EF, mass) and regional wall thickness work. Scar and longitudinal tracking are in progress. Not yet validated for research use.
 
 ## What it will do
 
@@ -12,7 +12,9 @@ Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and 
 | Load the UCL open mouse cardiac MRI dataset (130 mice), find ED/ES | Working |
 | EDV, ESV, stroke volume, EF, LV mass, with QC flags | Working (v0.1) |
 | Detect base vs apex, reorder slices, assign basal/mid/apical levels | Working (v0.1.1) |
-| Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Planned (v0.2) |
+| Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Working (v0.2, radial-ray method) |
+| Read cine series from DICOM (classic and enhanced multi-frame) | Working (v0.2, tested on synthetic data) |
+| Track the same mouse across scans (per-segment change maps) | Planned |
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
 | Automatic segmentation (existing models, then nnU-Net) | Planned |
 | Bruker ParaVision and Segment (.mat) input | Planned |
@@ -47,6 +49,18 @@ python scripts/run_volumes.py --ucl-dir data/ucl/Data --out results/ucl_volumes.
 ```
 
 Results record the papillary muscle convention of the labels (UCL: papillary muscles counted as myocardium). The pipeline refuses to compare results across conventions; see [docs/methods.md](docs/methods.md).
+
+Regional wall thickness and thickening, with bullseye plots for each mouse:
+
+```bash
+python scripts/run_wall.py --ucl-dir data/ucl/Data --out results/wall
+```
+
+Check a DICOM cine series (a folder of .dcm files):
+
+```bash
+python scripts/check_dataset.py --dicom path/to/series --out data/checks
+```
 
 Check a human dataset (example: one ACDC subject, which uses its own label numbers):
 

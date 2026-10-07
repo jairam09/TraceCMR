@@ -35,6 +35,57 @@ def _masks_for_contours(label2d: np.ndarray) -> dict[str, np.ndarray]:
     }
 
 
+def save_bullseye(
+    values: dict[str, np.ndarray],
+    out_path: str | Path,
+    title: str,
+    label: str,
+    vmin: float,
+    vmax: float,
+    cmap: str = "viridis",
+    fmt: str = "{:.2f}",
+) -> Path:
+    """Bullseye plot: basal ring outside, mid ring, apical ring inside (AHA layout).
+
+    `values` maps level -> per-segment values (6 basal, 6 mid, 4 apical).
+    Segment 1 starts at the reference angle (3 o'clock = image x-axis) and runs
+    counter-clockwise. Missing levels are drawn grey.
+    """
+    out_path = Path(out_path)
+    rings = [("basal", 3.0, 2.0), ("mid", 2.0, 1.0), ("apical", 1.0, 0.25)]
+    fig = plt.figure(figsize=(4.6, 4.2))
+    ax = fig.add_subplot(projection="polar")
+    cm = plt.get_cmap(cmap)
+    norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+    for level, outer, inner in rings:
+        n = {"basal": 6, "mid": 6, "apical": 4}[level]
+        vals = values.get(level)
+        width = 2 * np.pi / n
+        for s in range(n):
+            v = None if vals is None else vals[s]
+            colour = "#cccccc" if v is None or not np.isfinite(v) else cm(norm(v))
+            ax.bar(s * width + width / 2, outer - inner, width=width, bottom=inner,
+                   color=colour, edgecolor="white", linewidth=1.5)
+            if v is not None and np.isfinite(v):
+                r, g, b, _ = colour
+                luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                text = fmt.format(v)
+                if text.lstrip("-").strip("0.") == "":  # avoid "-0"
+                    text = text.lstrip("-")
+                ax.text(s * width + width / 2, (outer + inner) / 2, text,
+                        ha="center", va="center", fontsize=7,
+                        color="black" if luminance > 0.5 else "white")
+    ax.set_axis_off()
+    ax.set_ylim(0, 3.0)
+    sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cm)
+    fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.08, label=label)
+    ax.set_title(title, fontsize=10, pad=12)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=130)
+    plt.close(fig)
+    return out_path
+
+
 def save_overlay(
     ci: CardiacImage,
     out_path: str | Path,

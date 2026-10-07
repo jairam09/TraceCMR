@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] - 2026-10-07
+
+### Added
+- `wall.py`: regional wall thickness (radial rays, sub-pixel borders), AHA-layout levels and segments, systolic thickening per segment, flags for negative thickening and papillary convention.
+- `viz.save_bullseye`: bullseye plots of segment values.
+- `scripts/run_wall.py`: batch wall thickness for UCL mice, CSV + bullseye plots.
+- `dicom.py`: cine loader for classic and enhanced multi-frame DICOM, spacing from headers; `check_dataset.py --dicom`.
+- Tests for wall thickness (phantoms, papillary bump, thickening, conventions), bullseye output and DICOM sorting/spacing.
+
+### Fixed
+- DICOM trigger time of 0 ms no longer treated as missing (caught by tests before release).
+
 ## [0.1.1] - 2026-10-06
 
 ### Added

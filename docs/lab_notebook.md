@@ -2,6 +2,16 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-07 (wall thickness + DICOM)
+
+- Direction decided overnight: one app (napari plugin) combining auto-contour, manual correction and analysis; flagship feature = tracking the same mouse across scans. Build order: Segment AI check -> wall thickness -> longitudinal -> scar -> auto-contour -> app.
+- Built `wall.py` (radial rays, sub-pixel borders, 120 rays). Phantoms: within 0.04 mm everywhere.
+- 16 UCL mice: ED wall 0.76-1.17 mm; mean thickening vs EF r = 0.85. Mouse60 (DCM): thin mid/apical walls, low thickening. Mouse40 (healthy): thickening 33-96%.
+- Negative thickening in 11 segments, 10 of them basal: ray overlay of Mouse80 shows the top ES slice is a partial ring at the outflow tract. Flagged, not hidden.
+- Papillary spikes visible in ray overlays exactly where predicted (UCL labels papillary as myocardium).
+- Built `dicom.py`. Tests caught a bug: trigger time 0 ms treated as missing -> scrambled time order. Fixed.
+- Next: Segment Pre-clinical AI check; DICOM + Segment contour reader on one real lab file (ask first); wall thickness v2 (chords).
+
 ## 2026-10-06 (base/apex)
 
 - Labeled base/apex by eye for 16 UCL mice from anatomy (montages of all labeled slices). 3 apex-first: Mouse1, 3, 90.

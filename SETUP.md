@@ -33,7 +33,7 @@ pip install -e ".[dev]"
 
 `-e` means "editable": when you change the code, the changes take effect immediately without reinstalling.
 
-- Check: `pytest` prints `37 passed, 3 skipped` (the skipped tests run only on real UCL data; see docs/datasets.md).
+- Check: `pytest` prints `56 passed, 3 skipped` (the skipped tests run only on real UCL data; see docs/datasets.md).
 - Check: `python scripts/check_dataset.py --phantom --out data/checks` prints volumes and saves `data/checks/phantom_overlay.png`. Open the PNG: green and red circles should sit exactly on the edges of the gray ring and white disc.
 
 ## 4. Put it on GitHub
