@@ -1,0 +1,27 @@
+# Never commit data: large, often licensed against redistribution, hard to remove from history.
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Medical image files anywhere in the repo, as a second safety net
+*.nii
+*.nii.gz
+*.dcm
+2dseq
