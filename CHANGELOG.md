@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-10-06
+
+### Added
+- `orientation.py`: base/apex detection (refuses rather than guesses), per-heart detection from ED with ES cross-check, reordering to base-first, and basal/mid/apical/apical-cap level assignment.
+- `synthetic.tapered_phantom`: bullet-shaped LV with optional apical cap, stored either way round.
+- Visual ground truth for 16 UCL mice (`tests/data/ucl_orientation_truth.csv`) and tests against it.
+
 ## [0.1.0] - 2026-10-06
 
 ### Added

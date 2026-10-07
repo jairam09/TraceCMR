@@ -62,6 +62,38 @@ def ring_phantom(
     )
 
 
+def tapered_phantom(
+    n_slices: int = 8,
+    base_blood_mm: float = 2.5,
+    apex_blood_mm: float = 0.8,
+    wall_mm: float = 1.0,
+    apical_cap: bool = True,
+    base_first: bool = True,
+    spacing: tuple[float, float, float] = (0.1, 0.1, 1.0),
+    size: int = 128,
+) -> CardiacImage:
+    """A bullet-shaped LV: blood pool radius shrinks linearly from base to apex.
+
+    With apical_cap=True an extra myocardium-only slice closes the apex.
+    base_first=False stores the slices apex-first, as some datasets do.
+    """
+    radii = list(np.linspace(base_blood_mm, apex_blood_mm, n_slices))
+    slices = [ring_phantom((size, size, 1), spacing, r, wall_mm, phase="ED") for r in radii]
+    if apical_cap:
+        cap = ring_phantom((size, size, 1), spacing, apex_blood_mm, wall_mm, phase="ED")
+        cap.label[cap.label == L.LV_BLOODPOOL] = L.LV_MYOCARDIUM
+        cap.image[cap.label == L.LV_MYOCARDIUM] = 0.4
+        slices.append(cap)
+    image = np.concatenate([s.image for s in slices], axis=2)
+    label = np.concatenate([s.label for s in slices], axis=2)
+    if not base_first:
+        image, label = image[:, :, ::-1].copy(), label[:, :, ::-1].copy()
+    return CardiacImage(
+        image=image, spacing=spacing, label=label, subject_id="tapered", phase="ED",
+        affine=np.diag([*spacing, 1.0]),
+    )
+
+
 def ring_phantom_truth(
     shape: tuple[int, int, int] = (128, 128, 10),
     spacing: tuple[float, float, float] = (0.1, 0.1, 1.0),

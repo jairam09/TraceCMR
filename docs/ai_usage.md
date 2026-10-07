@@ -14,6 +14,7 @@ JOSS (and increasingly other journals) require a statement of which AI tools wer
 | 2026-10-06 | Initial repo scaffold (`io.py`, `labels.py`, `synthetic.py`, `viz.py`, `check_dataset.py`, tests, docs) | Code generation and test scaffolding | To do: read every file, run tests, confirm overlays |
 | 2026-10-06 | UCL dataset loader (`datasets/ucl.py`), tests, dataset docs | Code generation; inspected a real UCL file to confirm format and ED/ES frames; spacing taken from the UCL paper | To do: read the loader, rerun the Mouse1 check yourself |
 | 2026-10-06 | `volumes.py`, papillary convention tracking, `run_volumes.py`, tests | Code generation; ran on 16 UCL mice with an independent recomputation; tested papillary conversion and documented why it was rejected | Author raised the papillary convention issue and chose to track rather than convert; to do: read `volumes.py` |
+| 2026-10-06 | `orientation.py`, tapered phantom, orientation tests | Code generation; drew anatomy montages of 16 mice and proposed visual base/apex labels; scored candidate rules against them | To do: re-check the 16 visual labels in `tests/data/ucl_orientation_truth.csv` yourself (they are the ground truth) and read `orientation.py` |
 
 ## Design decisions made by the author
 

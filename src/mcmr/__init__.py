@@ -6,5 +6,5 @@ thickening, and LGE scar quantification.
 
 from .io import CardiacImage, load_nifti, save_nifti, sanity_check
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["CardiacImage", "load_nifti", "save_nifti", "sanity_check"]

@@ -28,9 +28,14 @@ Every choice that changes a result is written down here, with the reason. Papers
 - [ ] Basal slice inclusion rule (UCL: follow their labels as given).
 - [ ] Area from pixel counts vs from contour polygons (compare both against Segment when contour data is available).
 
-## Slice order (open issue for Phase 3)
+## Slice order and levels (decided, `orientation.py`)
 
-- UCL stacks are not consistently ordered: of 16 mice checked, 13 start at the base and 3 at the apex (judged by which end has the larger blood pool). Mouse130's ends are nearly equal, so that simple rule is unreliable. Volumes are unaffected; basal/mid/apical assignment needs a robust base/apex detector before Phase 3.
+- UCL stacks are not consistently ordered: of 16 mice, 13 are stored base-first and 3 apex-first. Ground truth was set by eye from anatomy (base end: atria, great vessels, large RV; apex end: small LV, no RV) and is kept in `tests/data/ucl_orientation_truth.csv`.
+- Candidate rules scored against that truth (ED): area-profile thirds 16/16; end-slice areas 16/16; apical cap (myocardium-only end slice) correct 7/7 when present, silent otherwise; bright tissue outside the epicardium (image-based RV/atria cue) 15/16, so it was not used.
+- Rule adopted: blood-pool area of the basal third must be at least 1.25x the apical third (lowest observed at ED: 1.54); apical cap and end slices must not contradict it. Otherwise the detector raises `OrientationUncertain` and the orientation must be given by hand. It never guesses.
+- Orientation is decided per heart from ED, cross-checked with ES. Single-phase results: ED 16 correct; ES 14 correct, 2 refused (Mouse60 dilated, Mouse130), 0 wrong.
+- Levels: slices with blood pool are split into thirds base -> apex (`np.array_split`, extra slices to basal then mid); myocardium-only slices beyond the apex are the apical cap.
+- Limitation: 16 mice with only 3 apex-first stacks. Re-validate on each new dataset.
 
 ## Wall thickness (Phase 3, to decide)
 

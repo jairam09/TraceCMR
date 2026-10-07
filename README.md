@@ -2,7 +2,7 @@
 
 Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening, and LGE scar quantification.
 
-> **Status: early development (v0.1.0).** Data loading, sanity checks, overlays and global LV function (volumes, EF, mass) work. Wall thickness and scar are in progress. Not yet validated for research use.
+> **Status: early development (v0.1.1).** Data loading, sanity checks, overlays and global LV function (volumes, EF, mass) work. Wall thickness and scar are in progress. Not yet validated for research use.
 
 ## What it will do
 
@@ -11,6 +11,7 @@ Open-source Python pipeline for analyzing **mouse cardiac MRI**: LV volumes and 
 | Load NIfTI images and labels, check spacing and labels, draw overlays | Working |
 | Load the UCL open mouse cardiac MRI dataset (130 mice), find ED/ES | Working |
 | EDV, ESV, stroke volume, EF, LV mass, with QC flags | Working (v0.1) |
+| Detect base vs apex, reorder slices, assign basal/mid/apical levels | Working (v0.1.1) |
 | Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Planned (v0.2) |
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
 | Automatic segmentation (existing models, then nnU-Net) | Planned |

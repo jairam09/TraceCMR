@@ -2,6 +2,14 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-06 (base/apex)
+
+- Labeled base/apex by eye for 16 UCL mice from anatomy (montages of all labeled slices). 3 apex-first: Mouse1, 3, 90.
+- Scored 4 rules. Area-profile thirds and end slices 16/16; apical cap never wrong but present in only 7; RV/atria brightness band 15/16 (missed Mouse50), not used.
+- Built `orientation.py`: thirds ratio >= 1.25 plus no contradictions, else refuse. ED 16/16 correct (min ratio 1.54). ES 14 correct, 2 refused, 0 wrong. Orientation decided per heart from ED with ES cross-check.
+- Visual check of levels on Mouse1 (apex-first) and Mouse2 (base-first): reordering and basal/mid/apical/cap labels look right.
+- Next: wall thickness v1 (radial rays) on ring and tapered phantoms; think about the papillary problem for thickness.
+
 ## 2026-10-06 (Phase 2 start)
 
 - Papillary convention: UCL labels papillary muscles as myocardium; my Segment SOP puts them inside the endo contour (blood pool). Tried converting UCL labels: closing barely changes ESV (papillary muscles look like wall at ES); convex hull upper bound shifts EDV +13%, ESV +18%, mass -9%. Decision: track the convention on every dataset, never convert, refuse cross-convention comparisons.
