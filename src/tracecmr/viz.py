@@ -35,6 +35,11 @@ def _masks_for_contours(label2d: np.ndarray) -> dict[str, np.ndarray]:
     }
 
 
+# Wall thickness colours, shared by the Wall lines and the ED wall bullseye: blue = thin, red = thick (the
+# familiar rainbow heat map used by most cardiac software).
+WALL_CMAP_NAME = "jet"
+
+
 def draw_bullseye(
     fig,
     values: dict[str, np.ndarray],
@@ -45,8 +50,17 @@ def draw_bullseye(
     cmap: str = "viridis",
     fmt: str = "{:.2f}",
     rect=None,
+    aha: bool = False,
+    fontsize: float = 7,
+    cbar: str = "vertical",
+    cax_rect=None,
 ):
     """Draw a bullseye into an existing matplotlib figure (used by files and the app).
+
+    aha=True (segments placed from the septum): the standard AHA view, segment 1 (anterior) at the top, septum on
+    the left, counterclockwise.
+    fontsize: segment numbers (the app scales it with the panel size; 0 hides them). cbar: "vertical",
+    "horizontal" (in `cax_rect` if given) or "none".
 
     Basal ring outside, mid ring, apical ring inside (AHA layout). `values` maps
     level -> per-segment values (6 basal, 6 mid, 4 apical). Segment 1 starts at the
@@ -57,7 +71,8 @@ def draw_bullseye(
     rings = [("basal", 3.0, 2.0), ("mid", 2.0, 1.0), ("apical", 1.0, 0.25)]
     ax = fig.add_subplot(projection="polar") if rect is None else fig.add_axes(rect, projection="polar")
     ax.set_theta_zero_location("E")
-    ax.set_theta_direction(-1)  # clockwise: image y axis points down
+    ax.set_theta_direction(1 if aha else -1)  # AHA: counterclockwise; otherwise as on the image (y points down)
+    start = {6: np.deg2rad(60.0), 4: np.deg2rad(45.0)} if aha else {6: 0.0, 4: 0.0}
     cm = plt.get_cmap(cmap)
     norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     for level, outer, inner in rings:
@@ -67,22 +82,32 @@ def draw_bullseye(
         for s in range(n):
             v = None if vals is None else vals[s]
             colour = "#cccccc" if v is None or not np.isfinite(v) else cm(norm(v))
-            ax.bar(s * width + width / 2, outer - inner, width=width, bottom=inner,
-                   color=colour, edgecolor="white", linewidth=1.5)
-            if v is not None and np.isfinite(v):
+            ax.bar(start[n] + s * width + width / 2, outer - inner, width=width, bottom=inner,
+                   color=colour, edgecolor="white", linewidth=0.8)
+            if v is not None and np.isfinite(v) and fontsize > 0 and (level != "apical" or fontsize >= 6):
                 r, g, b, _ = colour
                 luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
                 text = fmt.format(v)
                 if text.lstrip("-").strip("0.") == "":  # avoid "-0"
                     text = text.lstrip("-")
-                ax.text(s * width + width / 2, (outer + inner) / 2, text,
-                        ha="center", va="center", fontsize=7,
+                ax.text(start[n] + s * width + width / 2, (outer + inner) / 2, text,
+                        ha="center", va="center", fontsize=fontsize if level != "apical" else min(fontsize * 0.75, 6.5),
                         color="black" if luminance > 0.5 else "white")
     ax.set_axis_off()
     ax.set_ylim(0, 3.0)
+    small = max(5.0, fontsize * 0.85) if fontsize > 0 else 5.0
+    if aha:
+        ax.text(np.pi, 3.4, "septum", ha="center", va="center", fontsize=small, rotation=90, color="#9AA1A8")
+        ax.text(np.pi / 2, 3.3, "ant", ha="center", va="center", fontsize=small, color="#9AA1A8")
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cm)
-    fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.08, label=label)
-    ax.set_title(title, fontsize=10, pad=12)
+    if cbar == "horizontal":
+        cb = (fig.colorbar(sm, cax=fig.add_axes(cax_rect), orientation="horizontal") if cax_rect is not None
+              else fig.colorbar(sm, ax=ax, orientation="horizontal", fraction=0.05, pad=0.04))
+        cb.ax.tick_params(labelsize=small, length=2)
+        cb.outline.set_visible(False)
+    elif cbar == "vertical":
+        fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.08, label=label)
+    ax.set_title(title, fontsize=max(6.0, fontsize * 1.3) if fontsize > 0 else 8, pad=4 + (6 if aha else 0))
     return ax
 
 

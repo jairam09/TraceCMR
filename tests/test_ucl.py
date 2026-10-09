@@ -2,7 +2,7 @@
 
 Most tests build a tiny fake file in the UCL format, so they run anywhere.
 The last test runs on a real UCL file only if you point to the data folder:
-    VENTRIMAP_UCL_DATA=data/ucl/Data pytest tests/test_ucl.py
+    TRACECMR_UCL_DATA=data/ucl/Data pytest tests/test_ucl.py
 """
 
 import os
@@ -12,9 +12,9 @@ import h5py
 import numpy as np
 import pytest
 
-from ventrimap import labels as L
-from ventrimap.datasets import UCL_SPACING, find_ed_es, labeled_frames, load_ucl
-from ventrimap.synthetic import ring_phantom
+from tracecmr import labels as L
+from tracecmr.datasets import UCL_SPACING, find_ed_es, labeled_frames, load_ucl
+from tracecmr.synthetic import ring_phantom
 
 
 def make_fake_ucl(path: Path, ed_frame=0, es_frame=3, n_frames=6) -> Path:
@@ -84,10 +84,10 @@ def test_bad_frame_raises(tmp_path):
         load_ucl(p, "mid")
 
 
-UCL_DIR = os.environ.get("VENTRIMAP_UCL_DATA")
+UCL_DIR = os.environ.get("TRACECMR_UCL_DATA")
 
 
-@pytest.mark.skipif(not UCL_DIR, reason="set VENTRIMAP_UCL_DATA to a folder of UCL .h5 files")
+@pytest.mark.skipif(not UCL_DIR, reason="set TRACECMR_UCL_DATA to a folder of UCL .h5 files")
 def test_real_ucl_files_are_plausible():
     files = sorted(Path(UCL_DIR).glob("Mouse*.h5"))
     assert files, f"no Mouse*.h5 files in {UCL_DIR}"

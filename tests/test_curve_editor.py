@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from ventrimap import labels as L
-from ventrimap.app.curve_editor import curves_from_labels, insert_point, labels_from_curves
-from ventrimap.synthetic import ring_phantom
+from tracecmr import labels as L
+from tracecmr.app.curve_editor import curves_from_labels, insert_point, labels_from_curves
+from tracecmr.synthetic import ring_phantom
 
 
 def test_insert_point_goes_on_nearest_edge():
@@ -26,8 +26,8 @@ def test_round_trip_labels_curves_labels():
 
 
 def test_smooth_points_reduces_roughness_keeps_area_and_respects_selection():
-    from ventrimap.app.curve_editor import smooth_points
-    from ventrimap.contours import polygon_area
+    from tracecmr.app.curve_editor import smooth_points
+    from tracecmr.contours import polygon_area
 
     th = np.linspace(0, 2 * np.pi, 24, endpoint=False)
     r = 20 + np.where(np.arange(24) % 2, 2.0, -2.0)  # zig-zag circle
@@ -43,7 +43,7 @@ def test_smooth_points_reduces_roughness_keeps_area_and_respects_selection():
 
 
 def test_snap_to_edge_recovers_bright_tip_and_never_shrinks():
-    from ventrimap.refine import snap_slice
+    from tracecmr.refine import snap_slice
 
     ph = ring_phantom(shape=(96, 96, 1), spacing=(0.1, 0.1, 1.0), blood_radius_mm=2.0, wall_mm=1.0)
     lab = ph.label[:, :, 0].copy()

@@ -2,9 +2,9 @@ import numpy as np
 import nibabel as nib
 import pytest
 
-from ventrimap import labels as L
-from ventrimap.io import CardiacImage, load_nifti, remap_labels, sanity_check, save_nifti
-from ventrimap.synthetic import ring_phantom
+from tracecmr import labels as L
+from tracecmr.io import CardiacImage, load_nifti, remap_labels, sanity_check, save_nifti
+from tracecmr.synthetic import ring_phantom
 
 
 def test_roundtrip_preserves_image_label_and_spacing(tmp_path):

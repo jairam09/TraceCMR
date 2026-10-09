@@ -7,7 +7,7 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Arrays are indexed `(x, y, slice)`, one cardiac phase per `CardiacImage`.
 - Spacing is `(dx, dy, dz)` in mm, read from the file header. `dz` is the center-to-center slice distance (slice thickness + gap).
 - Volumes are in µL (1 mm³ = 1 µL). Human results may also be shown in mL.
-- Labels use one internal scheme (`src/ventrimap/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Loaders translate each dataset's numbers and refuse unknown values rather than guessing.
+- Labels use one internal scheme (`src/tracecmr/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Loaders translate each dataset's numbers and refuse unknown values rather than guessing.
 
 ## Dataset-specific facts (decided by the source, not by us)
 
@@ -38,7 +38,7 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Levels: slices with blood pool are split into thirds base -> apex (`np.array_split`, extra slices to basal then mid); myocardium-only slices beyond the apex are the apical cap.
 - Limitation: 16 mice with only 3 apex-first stacks. Re-validate on each new dataset.
 
-## Wall thickness (Phase 3, version 1 implemented in `wall.py`)
+## Wall thickness (Phase 3, `wall.py`: version 2 centerline method is the default)
 
 - [x] **Radial rays.** Centre = blood-pool centroid; 120 rays (every 3 degrees). Along each ray, the endocardium is where the interpolated blood-pool mask first drops below 0.5 and the epicardium is where the interpolated LV mask (blood + myocardium + scar) drops below 0.5 beyond that. Sampling step 0.25 px with bilinear interpolation gives sub-pixel borders, important when a mouse wall is ~10 pixels thick. Rays with no valid wall are NaN.
 - [x] **Levels and segments.** Slices are ordered base-first using the per-heart orientation (`orientation.py`), split into basal / mid / apical thirds, and each level is divided into equal angular sectors in the AHA layout (6 basal, 6 mid, 4 apical). Each segment value = mean over rays in the sector, averaged over that level's slices.
@@ -49,7 +49,12 @@ Every choice that changes a result is written down here, with the reason. Papers
   - Labels that count papillary muscles as myocardium (UCL) inflate thickness where they attach; visible as spikes in ray overlays (e.g. Mouse80 ED). Tested with a synthetic papillary bump.
   - Basal thickening is least reliable: 10 of 11 negative-thickening segments across 16 mice were basal, where the most basal ES slice is a partial ring at the outflow tract. These segments are flagged, not hidden.
   - Segments are numbered from the image x-axis, counter-clockwise. They are not AHA-named until a septal reference (RV insertion point) is available; UCL data has no RV labels.
-- [ ] Version 2: centreline chord method; compare with rays on ellipses and real hearts.
+- [x] **Septal reference (2026-10-09).** On each slice, the part of the epicardial border within 0.3 mm (else 0.6 mm) of the traced RV is the RV contact arc; its circular mean is the septum and its ends are the insertion points. Per level, the septum = circular mean over slices with an RV (ED, else ES), used for both phases; levels without an RV borrow the nearest level's. Segments then follow Cerqueira et al. (Circulation 2002): basal/mid 1 anterior, 2 anteroseptal, 3 inferoseptal, 4 inferior, 5 inferolateral, 6 anterolateral (septum centre = 2/3 boundary); apical 1 anterior, 2 septal, 3 inferior, 4 lateral (septum centre = middle of 2). Counterclockwise on the image, which assumes the slices are seen from the apex; the Mirror setting flips this. Which side is anterior cannot be told from the RV alone: check once per dataset (anterior faces the chest wall, inferior faces the diaphragm/liver). Phantom tests: RV on any side and the heart rotated: an anterior thick patch lands in segment 1; mirrored, in segment 4. Without an RV the segments start from the image x-axis and a flag says so. The user can set the septum by hand on any slice (one click: angle from the blood-pool centroid to the click); in a level with any slice set by hand, only those are used. Saved with the contours (`septum_manual`).
+- [x] **Version 2: centerline method (default since 2026-10-09).** Borders: iso-line 0.5 of the filled blood pool and filled LV masks, smoothed by 1 px along the curve with area kept (removes the pixel staircase, which otherwise biased distances ~4% low), resampled every 1/6 px. Centerline: zero line of (signed distance to endo) + (signed distance to epi) on a 4x upsampled grid (distances computed only within 2 px of the wall). Thickness at 120 evenly spaced centerline points = distance to endo + distance to epi = diameter of the largest circle that fits in the wall there, i.e. measured perpendicular to the wall. Points are assigned to segments by their angle around the blood-pool centroid, as before. Fully enclosed papillary muscles are ignored (holes filled); attached ones still inflate thickness locally (less than rays: +0.25 vs >+0.3 mm on the synthetic bump).
+  - Phantoms: rings 0.6/1.0/1.5 mm read within 0.01 mm on average, 0.035 mm at worst. Oval cavities with a uniform 1 mm wall (2:1 and 3:1): centerline 0.97-1.00 mm at every point; rays 1.07-1.17 mm on average and up to 1.43 mm.
+  - Real data (expert labels, first 10 of UCL's 25 held-out test mice): centerline ED wall 0.91 mm on average vs 0.99 mm with rays (rays read thick where the wall is oblique); thickening 40% vs 38% (a ratio, so the bias largely cancels); negative-thickening segments 7 vs 9. Mouse12 reads unusually thin by both methods (0.50 mm ED): check its labels.
+  - Speed: ~0.1 s per slice; results are cached per slice, so live updates after an edit recompute only the edited slice.
+  - Still to do: papillary exclusion for thickness, agreement with Segment on the same contours, comparison with published mouse values.
 - [ ] Septal reference from RV insertion (needs RV labels, e.g. ACDC or lab data).
 - [ ] Papillary-aware endocardial border for data labeled with papillary muscles as myocardium.
 

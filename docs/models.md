@@ -1,6 +1,6 @@
 # Auto-contour models
 
-VentriMap does not bundle any model. Each is downloaded from its authors and keeps its own license.
+TraceCMR does not bundle any model. Each is downloaded from its authors and keeps its own license.
 
 | Model | What it outlines | Speed (CPU, 9-slice scan) | License | Source |
 | --- | --- | --- | --- | --- |
@@ -15,17 +15,17 @@ Both repositories keep their weights in Git LFS, so a plain download gives only 
 
 ```bash
 # UCL model
-git clone https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation ~/.ventrimap/models/ucl
-cd ~/.ventrimap/models/ucl && git lfs pull          # needs Git LFS; ~156 MB
+git clone https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation ~/.tracecmr/models/ucl
+cd ~/.tracecmr/models/ucl && git lfs pull          # needs Git LFS; ~156 MB
 pip install tensorflow
 
 # Calico model
-git clone https://github.com/calico/mouse_cardiac_mri_segmentation ~/.ventrimap/models/calico
-cd ~/.ventrimap/models/calico && git lfs pull       # ~67 MB
+git clone https://github.com/calico/mouse_cardiac_mri_segmentation ~/.tracecmr/models/calico
+cd ~/.tracecmr/models/calico && git lfs pull       # ~67 MB
 pip install torch torchvision torchio munch
 ```
 
-Other locations work if you set `VENTRIMAP_UCL_DIR` / `VENTRIMAP_CALICO_DIR`. The app lists a model as "(not installed)" until its weights are found.
+Other locations work if you set `TRACECMR_UCL_DIR` / `TRACECMR_CALICO_DIR`. The app lists a model as "(not installed)" until its weights are found.
 
 Running both models in one session (the "double-check" option) needs about 8 GB of free memory.
 

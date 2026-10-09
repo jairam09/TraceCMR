@@ -54,7 +54,7 @@ def smooth_slice(label2d: np.ndarray, spacing_xy, window_deg: float = 90.0, min_
     wall = np.isin(label2d, (L.LV_MYOCARDIUM, L.SCAR, L.MVO))
     if not blood.any() or not wall.any():
         return label2d.copy()
-    st = slice_thickness(label2d, spacing_xy, n_rays=n_rays)
+    st = slice_thickness(label2d, spacing_xy, n_rays=n_rays, method="rays")
     if st is None:
         return label2d.copy()
     r, e = st.endo_r_mm.copy(), st.epi_r_mm.copy()

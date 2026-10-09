@@ -16,10 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
-from ventrimap.datasets import load_ucl
-from ventrimap.orientation import OrientationUncertain
-from ventrimap.volumes import compute_function
-from ventrimap.wall import compute_wall
+from tracecmr.datasets import load_ucl
+from tracecmr.orientation import OrientationUncertain
+from tracecmr.volumes import compute_function
+from tracecmr.wall import compute_wall
 
 LEVELS = ("basal", "mid", "apical")
 

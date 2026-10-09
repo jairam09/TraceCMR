@@ -1,7 +1,7 @@
 import pytest
 
-from ventrimap import labels as L
-from ventrimap.synthetic import ring_phantom, ring_phantom_truth
+from tracecmr import labels as L
+from tracecmr.synthetic import ring_phantom, ring_phantom_truth
 
 
 @pytest.mark.parametrize("spacing", [(0.1, 0.1, 1.0), (0.05, 0.05, 0.5), (0.2, 0.2, 1.0)])

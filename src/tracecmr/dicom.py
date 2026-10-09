@@ -143,15 +143,18 @@ class DicomCine:
         )
 
 
-def load_dicom_cine(folder: str | Path, subject_id: str | None = None) -> DicomCine:
-    """Load a short-axis cine series from a folder of DICOM files.
+def load_dicom_cine(folder: str | Path, subject_id: str | None = None,
+                    paths: list[Path] | None = None) -> DicomCine:
+    """Load a short-axis cine series from a folder of DICOM files (or an explicit file list).
 
-    All files must belong to one series with one orientation. Raises if the
-    frames do not form a complete slice x time grid, rather than guessing.
+    All files must belong to one orientation (one series, or several single-slice
+    series of the same stack). Raises if the frames do not form a complete
+    slice x time grid, rather than guessing.
     """
     folder = Path(folder)
-    paths = sorted(p for p in folder.rglob("*") if p.is_file())
-    frames = read_dicom_frames(paths)
+    if paths is None:
+        paths = sorted(p for p in folder.rglob("*") if p.is_file())
+    frames = read_dicom_frames(list(paths))
 
     o = frames[0].orientation
     for f in frames:

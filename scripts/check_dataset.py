@@ -23,12 +23,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ventrimap import labels as L
-from ventrimap.datasets import load_ucl
-from ventrimap.dicom import load_dicom_cine
-from ventrimap.io import load_nifti, sanity_check
-from ventrimap.synthetic import ring_phantom
-from ventrimap.viz import save_overlay
+from tracecmr import labels as L
+from tracecmr.datasets import load_ucl
+from tracecmr.dicom import load_dicom_cine
+from tracecmr.io import load_nifti, sanity_check
+from tracecmr.synthetic import ring_phantom
+from tracecmr.viz import save_overlay
 
 
 def main() -> None:

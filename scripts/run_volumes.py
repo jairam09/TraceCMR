@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ventrimap.datasets import load_ucl
-from ventrimap.volumes import compute_function
+from tracecmr.datasets import load_ucl
+from tracecmr.volumes import compute_function
 
 
 def mouse_number(p: Path) -> int:

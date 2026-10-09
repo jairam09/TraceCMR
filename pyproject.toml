@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ventrimap"
+name = "tracecmr"
 version = "0.3.0"
-description = "VentriMap: open-source analysis for mouse cardiac MRI (volumes, regional wall thickness, LGE scar)"
+description = "TraceCMR: open-source analysis for mouse cardiac MRI (volumes, regional wall thickness, LGE scar)"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Jaikrishnan Ram" }]
@@ -23,19 +23,19 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7", "jupyter"]
 bruker = ["brukerapi"]
-app = ["napari[pyqt6]>=0.5"]
+app = ["napari[pyqt6]>=0.5", "qtawesome>=1.3"]
 
 [project.scripts]
-ventrimap = "ventrimap.app.launch:main"
+tracecmr = "tracecmr.app.launch:main"
 
 [project.entry-points."napari.manifest"]
-ventrimap = "ventrimap.app:napari.yaml"
+tracecmr = "tracecmr.app:napari.yaml"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ventrimap.app" = ["napari.yaml"]
+"tracecmr.app" = ["napari.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

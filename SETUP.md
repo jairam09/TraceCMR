@@ -16,11 +16,11 @@ Do these once, in order. Each step ends with a check so you know it worked. If a
 An environment is a separate box of Python packages just for this project, so nothing clashes with anything else on your computer.
 
 ```bash
-conda create -n ventrimap python=3.11 -y
-conda activate ventrimap
+conda create -n tracecmr python=3.11 -y
+conda activate tracecmr
 ```
 
-- Check: your terminal prompt now starts with `(ventrimap)`. **Run `conda activate ventrimap` every time you open a new terminal to work on this.**
+- Check: your terminal prompt now starts with `(tracecmr)`. **Run `conda activate tracecmr` every time you open a new terminal to work on this.**
 
 ## 3. Get the code onto your computer
 
@@ -39,13 +39,13 @@ pip install -e ".[dev]"
 ## 4. Put it on GitHub
 
 1. Fill in your full name in `LICENSE` (replace `<YOUR FULL NAME>`), and save.
-2. On github.com, click **New repository**, name it `ventrimap`, choose **Private** for now, and do **not** add a README, license or .gitignore (the project already has them). Click **Create**.
+2. On github.com, click **New repository**, name it `tracecmr`, choose **Private** for now, and do **not** add a README, license or .gitignore (the project already has them). Click **Create**.
 3. GitHub shows commands under "push an existing repository." In your terminal, inside the project folder, run:
 
 ```bash
 git add LICENSE
 git commit -m "Add name to license"
-git remote add origin https://github.com/<your-username>/ventrimap.git
+git remote add origin https://github.com/<your-username>/tracecmr.git
 git branch -M main
 git push -u origin main
 ```
@@ -61,7 +61,7 @@ When you can load a real public dataset and the overlays look right: on GitHub g
 ## Daily routine
 
 ```bash
-conda activate ventrimap
+conda activate tracecmr
 cd path/to/<project folder>
 git pull                 # get any changes (e.g. made on another computer)
 # ...work...

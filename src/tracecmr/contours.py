@@ -135,7 +135,7 @@ def _even_with_tips(b: np.ndarray, n_points: int, tip_tol_px: float, min_gap_px:
     closed = np.vstack([b, b[:1]])
     s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(closed, axis=0).T))])
     perim = s[-1]
-    n = int(max(8, min(n_points, perim / max(min_gap_px, 1e-6))))
+    n = int(max(4, min(n_points, perim / max(min_gap_px, 1e-6))))  # small contours: fewer dots
     pos = list(np.linspace(0, perim, n, endpoint=False))
     for _ in range(max_extra):
         ctrl = np.column_stack([np.interp(pos, s, closed[:, 0]), np.interp(pos, s, closed[:, 1])])
@@ -185,6 +185,12 @@ def mask_to_curve(
         return None
     if n_points is None:
         return Curve(control=b, dense=b)
+    # small contours (apex, end-systole) get fewer points, so the dots don't pile up into a clump
+    ol = _smooth_outline(b, smooth_px) if len(b) > 8 else b  # the staircase outline overstates the length
+    perim = float(np.hypot(*np.diff(np.vstack([ol, ol[:1]]), axis=0).T).sum())
+    room = max(4, int(perim / min_gap_px))  # how many dots fit with min_gap_px between them
+    n_points = min(n_points, room)
+    max_points = min(max_points, max(room, n_points))
     if len(b) <= n_points:
         ctrl = resample_closed(b, min(n_points, len(b)))
         return Curve(control=ctrl, dense=spline_through(ctrl))

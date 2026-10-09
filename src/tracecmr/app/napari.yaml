@@ -1,0 +1,10 @@
+name: tracecmr
+display_name: TraceCMR
+contributions:
+  commands:
+    - id: tracecmr.open_panel
+      python_name: tracecmr.app._widget:TraceCMRWidget
+      title: Open the TraceCMR panel
+  widgets:
+    - command: tracecmr.open_panel
+      display_name: TraceCMR

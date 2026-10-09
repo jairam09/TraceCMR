@@ -76,3 +76,45 @@ def snap_endocardium(label: np.ndarray, image: np.ndarray, spacing, **kw) -> np.
     else:
         raise ValueError("label must be (x, y, slice) or (x, y, slice, time)")
     return out
+
+
+def fit_slice(label2d: np.ndarray, image2d: np.ndarray, spacing_xy, min_wall_mm: float = 0.15,
+              cut_frac: float = 0.5) -> np.ndarray:
+    """Redraw the endocardium around the bright blood in the image (the Fit button).
+
+    Unlike `snap_slice` this can also shrink: dark muscle the outline took in is given back to the wall,
+    and bright blood it missed is added. Blood brightness is the 75th percentile inside the current
+    outline (robust when the outline holds some muscle), muscle brightness the median of the wall away
+    from it; the cut-off is halfway. The new blood pool is the bright region touching the current outline,
+    never within `min_wall_mm` of the epicardium. The epicardium does not move. Returns the input unchanged
+    when there is no usable bright-blood contrast or the result would be implausibly different in size.
+    Dark muscle fully enclosed by blood (papillary) is left as a hole; the curve editor follows the outer edge.
+    """
+    blood = label2d == L.LV_BLOODPOOL
+    wall = label2d == L.LV_MYOCARDIUM
+    lv = blood | wall | (label2d == L.SCAR)
+    if blood.sum() < 5 or wall.sum() < 10:
+        return label2d.copy()
+    px = float(min(spacing_xy))
+    near = ndimage.binary_dilation(blood, iterations=2)
+    mu_b = float(np.percentile(image2d[blood], 75))
+    ring = wall & ~ndimage.binary_dilation(blood, iterations=3) & ndimage.binary_erosion(lv, iterations=1)
+    if ring.sum() < 5:
+        ring = wall & ~near
+    if ring.sum() < 5:
+        return label2d.copy()
+    mu_m = float(np.median(image2d[ring]))
+    if mu_b <= mu_m * 1.1:  # no clear bright-blood contrast
+        return label2d.copy()
+    cut = mu_m + cut_frac * (mu_b - mu_m)
+    inner = ndimage.distance_transform_edt(lv) * px > min_wall_mm
+    bright = (image2d > cut) & inner
+    comps, _ = ndimage.label(bright)
+    keep = set(np.unique(comps[near & bright])) - {0}
+    new = ndimage.binary_fill_holes(np.isin(comps, list(keep))) & inner
+    if new.sum() < 5 or not (0.4 <= new.sum() / blood.sum() <= 2.5):
+        return label2d.copy()
+    out = label2d.copy()
+    out[blood] = L.LV_MYOCARDIUM
+    out[new] = L.LV_BLOODPOOL
+    return out

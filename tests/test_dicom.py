@@ -12,7 +12,7 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.sequence import Sequence
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
-from ventrimap.dicom import load_dicom_cine
+from tracecmr.dicom import load_dicom_cine
 
 ROWS, COLS = 20, 24  # non-square so a transposition bug would show
 ORIENT = [1, 0, 0, 0, 1, 0]  # rows along x, columns along y -> normal along z

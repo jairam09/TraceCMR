@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from ventrimap import labels as L
-from ventrimap.papillary import smooth_papillary, smooth_slice
-from ventrimap.synthetic import ring_phantom
+from tracecmr import labels as L
+from tracecmr.papillary import smooth_papillary, smooth_slice
+from tracecmr.synthetic import ring_phantom
 
 
 def ring_with_papillary():

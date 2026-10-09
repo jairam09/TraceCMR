@@ -5,9 +5,9 @@ import os
 import numpy as np
 import pytest
 
-from ventrimap import autocontour as ac
-from ventrimap import labels as L
-from ventrimap.synthetic import ring_phantom
+from tracecmr import autocontour as ac
+from tracecmr import labels as L
+from tracecmr.synthetic import ring_phantom
 
 
 def test_fit_and_undo_round_trip():
@@ -42,22 +42,22 @@ def test_keep_main_component_drops_specks():
 
 
 def test_unknown_or_missing_model_errors(monkeypatch, tmp_path):
-    monkeypatch.setenv("VENTRIMAP_UCL_DIR", str(tmp_path))
+    monkeypatch.setenv("TRACECMR_UCL_DIR", str(tmp_path))
     with pytest.raises(ValueError):
         ac.run(np.zeros((8, 8, 2, 1)), (0.1, 0.1, 1.0), "nope")
     with pytest.raises(RuntimeError):
         ac.run(np.zeros((8, 8, 2, 1)), (0.1, 0.1, 1.0), "ucl")
 
 
-UCL_DIR = os.environ.get("VENTRIMAP_UCL_DIR")
-DATA = os.environ.get("VENTRIMAP_UCL_DATA")
+UCL_DIR = os.environ.get("TRACECMR_UCL_DIR")
+DATA = os.environ.get("TRACECMR_UCL_DATA")
 
 
 @pytest.mark.skipif(not (UCL_DIR and DATA and ac.available()["ucl"] == "ready"), reason="needs the UCL model and data")
 def test_ucl_model_matches_expert_on_a_test_mouse():
     import h5py
 
-    from ventrimap.datasets.ucl import find_ed_es
+    from tracecmr.datasets.ucl import find_ed_es
 
     p = os.path.join(DATA, "Mouse6.h5")  # one of UCL's 25 held-out test mice
     with h5py.File(p) as f:
@@ -66,3 +66,19 @@ def test_ucl_model_matches_expert_on_a_test_mouse():
     lab = ac.run(img, (0.1, 0.1, 1.0), "ucl", frames=[t])[..., t]
     a, b = lab == L.LV_BLOODPOOL, gt[..., t] == 2
     assert 2 * (a & b).sum() / (a.sum() + b.sum()) > 0.85
+
+
+def test_epi_cutoff_never_erases_a_faint_slice():
+    import numpy as np
+    from tracecmr import autocontour as ac
+
+    prob = np.zeros((20, 20, 2, 3), np.float32)
+    prob[..., 0] = 1.0
+    yy, xx = np.mgrid[:20, :20]
+    r = np.hypot(yy - 10, xx - 10)
+    prob[r < 6, 0] = (0.0, 1.0, 0.0)  # slice 0: confident LV
+    prob[r < 3, 0] = (0.0, 0.0, 1.0)
+    prob[r < 4, 1] = (0.3, 0.4, 0.3)  # slice 1: faint apex, LV but only 70% sure
+    lab = ac.labels_from_probs(prob, 0.5, 0.9)
+    assert (lab[:, :, 1] > 0).sum() == (r < 4).sum()  # kept, not erased
+    assert (lab[:, :, 0] > 0).sum() == (r < 6).sum()

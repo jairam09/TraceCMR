@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ventrimap.contours import curve_to_mask, mask_area_by_curve, mask_to_curve, polygon_area
+from tracecmr.contours import curve_to_mask, mask_area_by_curve, mask_to_curve, polygon_area
 
 
 def disc(r, shape=(128, 128), centre=(63.3, 64.7)):

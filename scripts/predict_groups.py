@@ -1,4 +1,4 @@
-"""Blind group prediction for the UCL cohort from VentriMap measurements alone.
+"""Blind group prediction for the UCL cohort from TraceCMR measurements alone.
 
 The rules below were written and committed BEFORE the 130-mouse results were
 inspected (2026-10-07) and before the true group labels were available. Do not

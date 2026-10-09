@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ventrimap-logo-dark.svg">
-    <img src="docs/assets/ventrimap-logo.svg" alt="VentriMap" width="320">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracecmr-logo-dark.svg">
+    <img src="docs/assets/tracecmr-logo.svg" alt="TraceCMR" width="320">
   </picture>
 </p>
 
-# VentriMap
+# TraceCMR
 
 Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening maps, and (planned) tracking the same heart across scans and LGE scar quantification.
 
@@ -30,13 +30,13 @@ Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regiona
 ## Install
 
 ```bash
-git clone https://github.com/jairam09/ventrimap.git
-cd ventrimap
+git clone https://github.com/jairam09/tracecmr.git
+cd tracecmr
 pip install -e ".[dev]"
 pytest            # all tests should pass
 ```
 
-To use the app: `pip install -e ".[app]"`, then run `ventrimap` (or open it from napari's Plugins menu). Auto-contour models are optional downloads: see [docs/models.md](docs/models.md).
+To use the app: `pip install -e ".[app]"`, then run `tracecmr` (or open it from napari's Plugins menu). Auto-contour models are optional downloads: see [docs/models.md](docs/models.md).
 
 ## Quick start
 
@@ -86,7 +86,7 @@ This prints shape, voxel spacing, label volumes and warnings, and saves an overl
 In Python:
 
 ```python
-from ventrimap import load_nifti, sanity_check
+from tracecmr import load_nifti, sanity_check
 ci = load_nifti("image.nii.gz", "label.nii.gz", label_map="acdc")
 print(ci.spacing, ci.labels_present())
 print(sanity_check(ci, species="human"))
@@ -94,7 +94,7 @@ print(sanity_check(ci, species="human"))
 
 ## Conventions
 
-All data is translated into one label scheme on load (`src/ventrimap/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Arrays are indexed `(x, y, slice)`; spacing is in mm, and volumes are in µL (1 mm³ = 1 µL). Analysis conventions are documented in [docs/methods.md](docs/methods.md).
+All data is translated into one label scheme on load (`src/tracecmr/labels.py`): 0 background, 1 LV blood pool, 2 LV myocardium, 3 RV blood pool, 4 scar, 5 MVO. Arrays are indexed `(x, y, slice)`; spacing is in mm, and volumes are in µL (1 mm³ = 1 µL). Analysis conventions are documented in [docs/methods.md](docs/methods.md).
 
 ## Data
 
