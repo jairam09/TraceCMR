@@ -23,6 +23,8 @@ slices keep their original masks exactly.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 from .. import labels as L
@@ -154,7 +156,9 @@ class CurveEditor:
         self.shapes = None
         self.add_to = "endo"  # contour that a new drawing makes
         self._undo: list[tuple[dict, set, set]] = []
-        self.hidden: set[Key] = set()  # contours whose dots are hidden after smoothing
+        self._redo: list[tuple[dict, set, set]] = []
+        self.hidden: set[Key] = set()  # kept for older saves; dots are no longer hidden per contour
+        self.show_dots = True  # Points toggle: off = clean contours to look at, no dot editing
         self.focus: str | None = "endo"  # the contour being edited (Endo / Epi / RV); None = all
         self.pending: tuple[int, int, str, list] | None = None  # contour being drawn: (t, z, name, points)
         self.active = False
@@ -164,7 +168,10 @@ class CurveEditor:
         self.on_window = None  # Ctrl + drag on the image: callback(d_contrast, d_brightness)
         self.pan_mode = False  # Pan button: left-drag moves the image instead of editing
         self.click_hook = None  # one-shot: the next left click goes here as (frame, slice, point_px), not to editing
+        self.suspended = False  # another tool (ROI) owns the mouse: no contour editing
         self._dims_attached = False
+        self._shape_of: dict[Key, int] = {}  # index of each contour in the curves layer (this slice)
+        self._last_draw = 0.0
 
     # ---------- layers ----------
 
@@ -180,12 +187,13 @@ class CurveEditor:
         self.hidden = hidden
         self.pending = None
         self._undo.clear()
+        self._redo.clear()
         for name in ("curves", "control points"):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(name)
         self.shapes = self.viewer.add_shapes(name="curves", scale=self.scale, ndim=4)
         self.points = self.viewer.add_points(np.empty((0, 4)), name="control points", scale=self.scale,
-                                             ndim=4, size=1.1, border_width=0.25, face_color="white",
+                                             ndim=4, size=self.DOT_SIZE, border_width=0.25, face_color="white",
                                              out_of_slice_display=False)
         self.points.events.data.connect(self._on_points_changed)
         if not self._mouse_attached:
@@ -197,6 +205,23 @@ class CurveEditor:
         self._view = self._here()
         self._refresh_layers()
         self.set_active(True)
+
+    def detach(self) -> None:
+        """Stop listening to the viewer (a new mouse was opened and gets a new editor)."""
+        self.active = False
+        if self._mouse_attached:
+            try:
+                self.viewer.mouse_drag_callbacks.remove(self._on_mouse)
+            except ValueError:
+                pass
+            self._mouse_attached = False
+        if self._dims_attached:
+            try:
+                self.viewer.dims.events.current_step.disconnect(self._on_step)
+            except (TypeError, ValueError, RuntimeError):
+                pass
+            self._dims_attached = False
+        self.points = self.shapes = None
 
     def set_active(self, on: bool) -> None:
         """Curve editing on (mouse edits contours, right-drag pans) or off (napari's normal mouse)."""
@@ -219,6 +244,15 @@ class CurveEditor:
     def _focused(self, key: Key) -> bool:
         return self.focus is None or key[2] == self.focus
 
+    def _visible(self, key: Key) -> bool:
+        """Its dots show and can be grabbed: Points is on, and it is the contour being edited."""
+        return self.show_dots and key not in self.hidden and self._focused(key)
+
+    def set_show_dots(self, on: bool) -> None:
+        """Points toggle: show the selected contour's dots (and edit with them), or a clean view without dots."""
+        self.show_dots = bool(on)
+        self._refresh_layers()
+
     def set_focus(self, name: str | None) -> None:
         """Edit only this contour ('endo', 'epi', 'rv'): only its dots are shown and can be grabbed."""
         self.focus = name
@@ -231,6 +265,8 @@ class CurveEditor:
         return int(step[0]), int(step[1])
 
     def _on_step(self, event=None):
+        if self._updating:  # our own redraw moved the position: don't redraw again (that can loop)
+            return
         if self.points is not None and self._here() != getattr(self, "_view", None):
             self._view = self._here()
             self._refresh_layers()
@@ -240,7 +276,7 @@ class CurveEditor:
         coords, keys = [], []
         for key, ctrl in sorted(self.curves.items()):
             t, z, _ = key
-            if (t, z) != (t0, z0) or key in self.hidden or not self._focused(key):
+            if (t, z) != (t0, z0) or not self._visible(key):
                 continue
             for x, y in ctrl:
                 coords.append((t, z, y, x))
@@ -270,14 +306,15 @@ class CurveEditor:
     def _redraw_shapes(self, only: set[Key] | None = None) -> None:
         t0, z0 = self._here()
         polys, colours, types = [], [], []
+        self._shape_of = {}
         for key, ctrl in sorted(self.curves.items()):
             t, z, name = key
             if (t, z) != (t0, z0):
                 continue
-            dense = spline_through(ctrl, 200)
-            polys.append(np.column_stack([np.full(len(dense), t), np.full(len(dense), z), dense[:, 1], dense[:, 0]]))
+            self._shape_of[key] = len(polys)
+            polys.append(self._outline(key))
             colours.append(COLOURS[name])
-            types.append("polygon")
+            types.append("path")  # a closed path, not a polygon: no fill to triangulate on every redraw
         if self.pending is not None and self.pending[:2] == (t0, z0) and len(self.pending[3]) >= 2:
             t, z, name, pts = self.pending
             a = np.array(pts)
@@ -288,18 +325,57 @@ class CurveEditor:
         if polys:
             self.shapes.add(polys, shape_type=types, edge_color=colours, face_color=(0, 0, 0, 0), edge_width=LINE_WIDTH)
 
+    def _outline(self, key: Key) -> np.ndarray:
+        """The contour as a closed line in layer coordinates (t, z, y, x)."""
+        t, z, _ = key
+        d = spline_through(self.curves[key], 200)
+        d = np.vstack([d, d[:1]])
+        return np.column_stack([np.full(len(d), t), np.full(len(d), z), d[:, 1], d[:, 0]])
+
+    def _drag_update(self, key: Key, i: int) -> None:
+        """Redraw while a dot is dragged: move just that dot and redraw just that contour (a full redraw
+        rebuilds every dot and line on the slice, too slow to keep up with the mouse). At most ~80 times a
+        second; the release does a full redraw."""
+        now = time.perf_counter()
+        if now - self._last_draw < 0.012:
+            return
+        self._last_draw = now
+        rows = [r for r, k in enumerate(self._keys) if k == key]
+        idx = self._shape_of.get(key)
+        if i >= len(rows) or idx is None or len(rows) != len(self.curves[key]):
+            self._refresh_layers()
+            return
+        self._updating = True
+        try:
+            x, y = self.curves[key][i]
+            self.points.data[rows[i], 2:] = (y, x)
+            self.points.refresh()
+            self.shapes._data_view.edit(idx, self._outline(key))
+            self.shapes.refresh()
+        except Exception:  # napari internals changed: fall back to the full redraw
+            self._refresh_layers()
+        finally:
+            self._updating = False
+
     # ---------- undo ----------
 
-    def push_undo(self) -> None:
-        self._undo.append(({k: v.copy() for k, v in self.curves.items()}, set(self.edited), set(self.hidden),
-                           None if self.pending is None else (*self.pending[:3], list(self.pending[3]))))
-        del self._undo[:-50]
+    def _snapshot(self):
+        return ({k: v.copy() for k, v in self.curves.items()}, set(self.edited), set(self.hidden),
+                None if self.pending is None else (*self.pending[:3], list(self.pending[3])))
 
-    def undo(self) -> bool:
-        """Revert the last edit of any kind."""
-        if not self._undo:
-            return False
-        snap = self._undo.pop()
+    def push_undo(self) -> None:
+        """Remember the state before an edit. A new edit ends the redo history (as in every editor)."""
+        self._undo.append(self._snapshot())
+        del self._undo[:-50]
+        self._redo_saved, self._redo = self._redo, []
+
+    def _drop_undo(self) -> None:
+        """The edit didn't change anything after all: forget its undo step and keep the redo history."""
+        if self._undo:
+            self._undo.pop()
+        self._redo = getattr(self, "_redo_saved", self._redo)
+
+    def _restore(self, snap) -> None:
         # Contours that differ between now and the restored state must be written back to the labels: the
         # panel may already have applied the edit being undone (live results) and cleared `edited`.
         cur, old = self.curves, snap[0]
@@ -311,13 +387,34 @@ class CurveEditor:
         self.pending = snap[3] if len(snap) > 3 else None
         self._refresh_layers()
         self._notify()
+
+    def undo(self) -> bool:
+        """Revert the last edit of any kind (Ctrl+Z)."""
+        if not self._undo:
+            return False
+        self._redo.append(self._snapshot())
+        self._restore(self._undo.pop())
+        return True
+
+    def redo(self) -> bool:
+        """Put back the last undone edit (Ctrl+Y or Ctrl+Shift+Z)."""
+        if not self._redo:
+            return False
+        self._undo.append(self._snapshot())
+        self._restore(self._redo.pop())
         return True
 
     # ---------- geometry helpers ----------
 
+    DOT_SIZE = 1.1  # the dots' diameter in image pixels (the points layer's `size`)
+
     def _tol_px(self) -> float:
+        """How far (image pixels) a click may be from a dot's centre and still take it: 12 screen pixels, or
+        the dot itself plus a little when zoomed in so far that the drawn dot is bigger than that. Without the
+        second part a click visibly on a big dot could miss it."""
         zoom = float(self.camera.zoom) or 1.0  # screen pixels per world unit
-        return self.HIT_SCREEN_PX / zoom / float(min(self.scale[2], self.scale[3]))
+        screen = self.HIT_SCREEN_PX / zoom / float(min(self.scale[2], self.scale[3]))
+        return max(screen, self.DOT_SIZE / 2 + 0.25)
 
     def _to_px(self, world_pos) -> np.ndarray:
         return np.array([world_pos[-1] / self.scale[3], world_pos[-2] / self.scale[2]])
@@ -329,7 +426,7 @@ class CurveEditor:
         """
         best = None
         for key, ctrl in self.curves.items():
-            if key[:2] != (t, z) or key in self.hidden or not self._focused(key):
+            if key[:2] != (t, z) or not self._visible(key):
                 continue
             d = np.hypot(*(ctrl - p).T)
             i = int(np.argmin(d))
@@ -338,7 +435,7 @@ class CurveEditor:
         if best:
             return best[:3]
         for key, ctrl in self.curves.items():
-            if key[:2] != (t, z) or key in self.hidden or not self._focused(key) or len(ctrl) < 3:
+            if key[:2] != (t, z) or not self._visible(key) or len(ctrl) < 3:
                 continue
             dense = spline_through(ctrl, 400)
             dd = np.hypot(*(dense - p).T)
@@ -364,7 +461,7 @@ class CurveEditor:
 
     def delete_point(self, key: Key, i: int) -> bool:
         if len(self.curves[key]) <= 4:
-            self._say("A contour needs at least 4 points. Use Clear slice to remove the whole contour.")
+            self._say("A contour needs at least 4 points. Use Clear to remove it.")
             return False
         self.curves[key] = np.delete(self.curves[key], i, axis=0)
         self._changed(key)
@@ -413,7 +510,7 @@ class CurveEditor:
 
     def _on_mouse(self, viewer, event):
         """Segment-style mouse editing; see the module docstring."""
-        if not self.active or self.points is None or len(event.position) < 4:
+        if not self.active or self.suspended or self.points is None or len(event.position) < 4:
             return
         t, z = self._here()
         p = self._to_px(event.position)
@@ -435,7 +532,8 @@ class CurveEditor:
             hook, self.click_hook = self.click_hook, None
             hook(t, z, p)
             return
-        if event.button == 1 and self.pan_mode:  # Pan button on: left-drag moves the image, nothing is edited
+        if event.button == 1 and (self.pan_mode or not self.show_dots):
+            # Pan on, or Points off (a clean view): left-drag moves the image, nothing is edited
             yield from self._pan_drag(event)
             return
         if event.button == 1:
@@ -456,7 +554,7 @@ class CurveEditor:
                         self._refresh_layers()
                         yield
                     if not moved:  # a plain click on a point you placed changes nothing
-                        self._undo.pop()
+                        self._drop_undo()
                     return
             h = self.hit(t, z, p, tol)
             if h is None:
@@ -472,22 +570,26 @@ class CurveEditor:
                     self.push_undo()
                     self.add_pending(t, z, p)
                     self._refresh_layers()
-                    self._say("Drawing: click to add points, drag a point to fix it, right-click to close.")
+                    self._say("Drawing: click to add points, drag one to adjust, right-click to close.")
                 return
             kind, key, i = h
             self.push_undo()
-            if kind == "curve":
+            if kind == "curve":  # a new dot on the line: it has to appear before the drag
                 i = self.insert_point_at(key, i, p)
-            self._refresh_layers()
+                self._refresh_layers()
+            # grabbing an existing dot changes nothing yet: no redraw before the drag starts (a full redraw
+            # here was the pause between pressing and the dot following the mouse)
             yield
             moved = False
             while event.type == "mouse_move":
                 self.move_point(key, i, self._to_px(event.position))
                 moved = True
-                self._refresh_layers()
+                self._drag_update(key, i)
                 yield
+            if moved:
+                self._refresh_layers()  # the exact final position, everything in sync
             if kind == "point" and not moved:  # a plain click on a dot changes nothing
-                self._undo.pop()
+                self._drop_undo()
             else:
                 self._notify()
         elif event.button in (2, 3):  # right (or middle) button
@@ -500,8 +602,8 @@ class CurveEditor:
                     self._say("Contour closed.")
                     self._notify()
                 else:
-                    self._undo.pop()
-                    self._say("Place at least 3 points before closing.")
+                    self._drop_undo()
+                    self._say("Place at least 3 points first.")
                 self._refresh_layers()
                 return
             h = self.hit(t, z, p, tol)
@@ -511,13 +613,13 @@ class CurveEditor:
                     self._refresh_layers()
                     self._notify()
                 else:
-                    self._undo.pop()
+                    self._drop_undo()
 
     def _nearest_dot(self, t: int, z: int, p: np.ndarray, radius: float):
         """(key, index) of the closest editable dot within `radius` pixels, or None."""
         best = None
         for key, ctrl in self.curves.items():
-            if key[:2] != (t, z) or key in self.hidden or not self._focused(key):
+            if key[:2] != (t, z) or not self._visible(key):
                 continue
             d = np.hypot(*(ctrl - p).T)
             i = int(np.argmin(d))
@@ -560,7 +662,7 @@ class CurveEditor:
     # ---------- napari-driven edits (kept for scripts/tests that set the layer data) ----------
 
     def _on_points_changed(self, event=None) -> None:
-        if self._updating:
+        if self._updating or self.points is None:
             return
         data = np.asarray(self.points.data)
         n_old = len(self._keys)
@@ -623,12 +725,12 @@ class CurveEditor:
         if changed:
             self._refresh_layers()
         else:
-            self._undo.pop()
+            self._drop_undo()
         return changed
 
-    def smooth_and_hide(self, frame: int, slice_: int, passes: int = 1, strength: float = 0.3) -> int:
-        """Segment-style: smooth the contour being edited on one slice (all contours if none is chosen)
-        and hide its dots."""
+    def smooth(self, frame: int, slice_: int, passes: int = 1, strength: float = 0.3) -> int:
+        """Smooth the contour being edited on one slice (all contours if none is chosen). Its dots stay, so it
+        can be adjusted straight away; Smooth again for smoother."""
         keys = [k for k in self.curves if (k[0], k[1]) == (frame, slice_) and self._focused(k)]
         if not keys:
             return 0
@@ -636,7 +738,7 @@ class CurveEditor:
         for key in keys:
             self.curves[key] = smooth_points(self.curves[key], strength=strength, passes=passes)
             self.edited.add(key)
-        self.hidden |= set(keys)
+        self.hidden -= set(keys)
         self._refresh_layers()
         self._notify()
         return len(keys)
@@ -647,7 +749,7 @@ class CurveEditor:
         """Grow (d > 0) or shrink (d < 0) the selected contour on one slice by d pixels.
 
         The endocardium never crosses the epicardium (and vice versa): points that would cross stay
-        where they are. Dots hidden after Smooth stay hidden. Returns (contour name, area change in
+        where they are. Returns (contour name, area change in
         pixels), or (None, 0) if there was nothing to change.
         """
         from ..contours import polygon_area
@@ -678,6 +780,8 @@ class CurveEditor:
         self._refresh_layers()
         self._notify()
         return name, change
+
+    smooth_and_hide = smooth  # older name
 
     def show_slice_points(self, frame: int, slice_: int) -> None:
         """Bring back the points on one slice for editing."""

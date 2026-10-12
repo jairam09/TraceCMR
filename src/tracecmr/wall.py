@@ -465,19 +465,19 @@ def compute_wall(
     for level, vals in thick.items():
         bad = [i + 1 for i, v in enumerate(vals) if np.isfinite(v) and v < 0]
         if bad:
-            note = " (basal through-plane motion / outflow tract likely)" if level == "basal" else ""
-            flags.append(f"negative thickening in {level} segment(s) {bad}: check contours{note}")
+            note = " (likely basal motion or outflow tract)" if level == "basal" else ""
+            flags.append(f"negative thickening, {level} segment(s) {bad}: check contours{note}")
     if ed.papillary == "myocardium":
-        flags.append("papillary muscles labeled as myocardium: thickness inflated where they attach")
+        flags.append("papillary muscles counted as muscle: thickness inflated where they attach")
     if man.get("ED") or man.get("ES"):
-        flags.append("septum set by hand on some slices (Wall menu → Reset septum to go back to automatic)")
+        flags.append("septum set by hand on some slices (Reset septum restores the automatic one)")
     if septum:
         missing = [lv for lv in SEGMENTS_PER_LEVEL if lv not in septum and lv in ed_w.levels]
-        flags.append("segments placed from the RV insertion (septum = segments 2-3, apical 2) in AHA order, assuming "
-                     "the slices are seen from the apex" + (" (mirrored)" if mirror else "")
-                     + "; if the scan is seen from the base, tick Settings → Mirror segment numbering"
-                     + (f"; {', '.join(missing)} level borrows the septum from the nearest level" if missing else ""))
+        flags.append("segments placed from the RV insertion in AHA order, seen from the apex"
+                     + (" (mirrored)" if mirror else "")
+                     + "; if seen from the base, tick Settings → Mirror segment numbering"
+                     + (f"; {', '.join(missing)} uses the nearest level's septum" if missing else ""))
     else:
-        flags.append("no RV traced: segments numbered from the image x-axis, not anatomical (trace the RV on a few "
-                     "slices to place them from the septum)")
+        flags.append("no RV traced: segments numbered from the image x-axis, not anatomy (trace the RV on a few "
+                     "slices)")
     return WallResult(subject_id=ed.subject_id, ed=ed_w, es=es_w, thickening_pct=thick, flags=flags)

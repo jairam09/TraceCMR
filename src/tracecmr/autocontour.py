@@ -217,6 +217,19 @@ def _ucl_volume(vol_xyz: np.ndarray, spacing, cutoff: float | None = None) -> np
                              epi_cutoff())
 
 
+def _ucl_volume_unsure(vol_xyz: np.ndarray, spacing) -> tuple[np.ndarray, np.ndarray]:
+    """Like _ucl_volume, plus each slice's "model unsure" score (quality.unsure_score)."""
+    from .quality import unsure_score
+
+    prob = _ucl_probs(vol_xyz, spacing)
+    lab = labels_from_probs(prob, blood_cutoff(), epi_cutoff())
+    std = _to_standard(lab, "ucl")
+    return lab, np.array([unsure_score(prob[:, :, z], std[:, :, z]) for z in range(lab.shape[2])], np.float32)
+
+
+_last_unsure: np.ndarray | None = None  # per-slice scores from the last UCL run (None for other models)
+
+
 # ------------------------------------------------------------- Calico model
 
 _calico = None
@@ -303,6 +316,7 @@ class _Worker:
                 np.savez(f, vol=vol_xyz.astype(np.float32), spacing=np.asarray(spacing, float))
             self.ask(f"run {self.model} {inp} {out}")
             with np.load(out) as d:  # close before the folder is removed (Windows file locks)
+                self.last_unsure = d["unc"].copy() if "unc" in d.files else None
                 return d["lab"].copy()
 
 
@@ -311,10 +325,17 @@ _workers: dict[str, _Worker] = {}
 
 def _model_volume(model: str, vol_xyz: np.ndarray, spacing) -> np.ndarray:
     """Run a model on one volume: inside a worker process from the app, directly inside the worker."""
+    global _last_unsure
     if os.environ.get("TRACECMR_INPROCESS") == "1":
-        return _ucl_volume(vol_xyz, spacing) if model == "ucl" else _calico_volume(vol_xyz, spacing)
+        if model == "ucl":
+            lab, _last_unsure = _ucl_volume_unsure(vol_xyz, spacing)
+            return lab
+        _last_unsure = None
+        return _calico_volume(vol_xyz, spacing)
     w = _workers.setdefault(model, _Worker(model))
-    return w.run(vol_xyz, spacing)
+    lab = w.run(vol_xyz, spacing)
+    _last_unsure = getattr(w, "last_unsure", None)
+    return lab
 
 
 # ------------------------------------------------------------------ public
@@ -360,7 +381,8 @@ def _to_standard(raw: np.ndarray, model: str) -> np.ndarray:
     return std
 
 
-def run_pairs(image_xyzt: np.ndarray, spacing, pairs: list[tuple[int, int]], model: str = "ucl") -> np.ndarray:
+def run_pairs(image_xyzt: np.ndarray, spacing, pairs: list[tuple[int, int]], model: str = "ucl",
+              unsure_out: list | None = None) -> np.ndarray:
     """Contour only the given (slice, frame) images, in one pass through the model.
 
     The images are stacked in slice order as one volume (each slice from its own frame, which is how
@@ -379,6 +401,13 @@ def run_pairs(image_xyzt: np.ndarray, spacing, pairs: list[tuple[int, int]], mod
     out = np.zeros_like(std)
     for k, i in enumerate(order):
         out[:, :, i] = std[:, :, k]
+    if unsure_out is not None:  # "model unsure" score per pair (quality.py), when the model gives one
+        unc = _last_unsure
+        scores = [None] * len(pairs)
+        if unc is not None and len(unc) == len(pairs):
+            for k, i in enumerate(order):
+                scores[i] = float(unc[k])
+        unsure_out[:] = scores
     return out
 
 

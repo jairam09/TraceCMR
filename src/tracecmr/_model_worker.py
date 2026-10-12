@@ -6,7 +6,7 @@ it and starts a fresh worker next time. Each model stays loaded between clicks.
 
 Protocol (one line per request on stdin, one reply line on stdout):
     load <model>                       -> @@ok
-    run <model> <in.npz> <out.npz>     -> @@ok   (in.npz: vol, spacing; out.npz: lab)
+    run <model> <in.npz> <out.npz>     -> @@ok   (in.npz: vol, spacing; out.npz: lab, and unc for UCL)
     quit
 Errors reply "@@err <message>".
 """
@@ -38,9 +38,12 @@ def main() -> None:
                 model, inp, dst = parts[1], parts[2], parts[3]
                 with np.load(inp) as d:  # closed straight away: Windows cannot delete a file still open
                     vol, spacing = d["vol"].copy(), tuple(float(v) for v in d["spacing"])
-                fn = ac._ucl_volume if model == "ucl" else ac._calico_volume
                 with open(dst, "wb") as f:
-                    np.savez(f, lab=fn(vol, spacing))
+                    if model == "ucl":  # labels plus each slice's "model unsure" score (quality.py)
+                        lab, unc = ac._ucl_volume_unsure(vol, spacing)
+                        np.savez(f, lab=lab, unc=unc)
+                    else:
+                        np.savez(f, lab=ac._calico_volume(vol, spacing))
             else:
                 raise ValueError(f"unknown command {cmd!r}")
             out.write("@@ok\n")

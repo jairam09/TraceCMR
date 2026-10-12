@@ -16,6 +16,7 @@ from tracecmr.app._widget import TraceCMRWidget  # noqa: E402
 from tracecmr.app.session import Session  # noqa: E402
 from tracecmr.synthetic import tapered_phantom  # noqa: E402
 from qtpy.QtCore import Qt  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 
 def test_panel_computes_and_reorders():
@@ -143,22 +144,29 @@ def test_smooth_button_and_undo():
         n_points = len(ed_.points.data)
         panel._smooth_points()  # Endo is selected: only the endocardium is smoothed
         here = {(0, z, "endo")}
-        assert ed_.edited == here and (0, z, "endo") in ed_.hidden
-        assert len(ed_.points.data) == n_points - len(before[(0, z, "endo")])  # only its dots are gone
+        assert ed_.edited == here and not ed_.hidden
+        assert len(ed_.points.data) == n_points  # its points stay, ready to adjust
         assert all(np.allclose(before[k], ed_.curves[k]) for k in before if k not in here)
-        # editing another slice keeps the hidden slice's contours
+        # Points off: a clean view (no dots at all); picking a contour (Q) brings them back
+        panel.btn_points.setChecked(False)
+        assert len(ed_.points.data) == 0
+        panel.cycle_structure()
+        assert panel.btn_points.isChecked() and len(ed_.points.data) > 0
+        panel.btn_points.click()
+        assert len(ed_.points.data) == 0
+        panel.btn_points.click()
+        assert len(ed_.points.data) > 0
+        # editing another slice keeps the smoothed slice's contours
         other = next(k for k in ed_.curves if k[:2] != (0, z))
         ed_.move_point(other, 0, ed_.curves[other][0] + 1.0)
         assert all(k in ed_.curves for k in here)
-        panel._edit_points()
-        assert not any(k[:2] == (0, z) for k in ed_.hidden)
         assert ed_.undo()
     finally:
         viewer.close()
 
 
 def test_smoothed_contour_stays_smoothed_after_phase_change_elsewhere():
-    """Smooth on one slice, set ES on another slice, come back: the dots stay hidden."""
+    """Smooth on one slice, set ES on another slice, come back: the contours stay smoothed."""
     ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
     s = Session(image=np.stack([ed.image, es.image, es.image], -1),
@@ -174,14 +182,12 @@ def test_smoothed_contour_stays_smoothed_after_phase_change_elsewhere():
             panel.cmb_add.setCurrentIndex(target)
             panel._smooth_points()
         smoothed = {k: e.curves[k].copy() for k in ((0, z, "endo"), (0, z, "epi"))}
-        assert set(smoothed) <= e.hidden
         panel.chk_per_slice.setChecked(True)
         panel.step_slice(1)
         panel.set_phase_frame("ES", 2)  # re-shows the curves
         panel.step_slice(-1)
-        assert set(smoothed) <= e.hidden
         assert all(np.allclose(e.curves[k], v) for k, v in smoothed.items())
-        assert len(e.points.data) == 0  # epi is selected and smoothed: no dots
+        assert len(e.points.data) == len(smoothed[(0, z, "epi")])  # epi selected: its (smoothed) points show
         # contours replaced on this slice (e.g. auto-contour) come back with dots
         lab = panel.session.label.copy()
         lab[:, :, z, 0] = 0
@@ -419,7 +425,7 @@ def test_autocontour_only_the_frame_being_viewed(monkeypatch):
     truth = np.stack([ed.label, ed.label, es.label, ed.label], -1)
     calls = []
 
-    def fake_pairs(image, spacing, pairs, model="ucl"):
+    def fake_pairs(image, spacing, pairs, model="ucl", unsure_out=None):
         calls.append(list(pairs))
         return np.stack([truth[:, :, z, t] for z, t in pairs], axis=2)
 
@@ -601,7 +607,7 @@ def test_auto_lv_never_overwrites_finished_slices(monkeypatch):
     img = np.stack([ed.image, ed.image], -1)
     calls = []
 
-    def fake_pairs(image, spacing, pairs, model="ucl"):
+    def fake_pairs(image, spacing, pairs, model="ucl", unsure_out=None):
         calls.append(list(pairs))
         return np.stack([ed.label[:, :, z] for z, t in pairs], axis=2)
 
@@ -714,7 +720,7 @@ def test_auto_lv_marks_base_and_apex_until_edited(monkeypatch):
     ed = tapered_phantom(n_slices=6, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     img = np.stack([ed.image, ed.image], -1)
     monkeypatch.setattr(ac, "available", lambda: {"ucl": "ready"})
-    monkeypatch.setattr(ac, "run_pairs", lambda image, spacing, pairs, model="ucl":
+    monkeypatch.setattr(ac, "run_pairs", lambda image, spacing, pairs, model="ucl", unsure_out=None:
                         np.stack([ed.label[:, :, z] for z, t in pairs], axis=2))
     s = Session(image=img, label=np.zeros(img.shape, np.uint8), spacing=ed.spacing, subject_id="m")
     viewer = napari.Viewer(show=False)
@@ -739,7 +745,7 @@ def test_auto_lv_marks_base_and_apex_until_edited(monkeypatch):
 
 
 def test_grow_and_shrink_contour():
-    """Grow pushes the selected outline out (never past the epi), Shrink pulls it in, Undo reverts, dots stay hidden."""
+    """Grow pushes the selected outline out (never past the epi), Shrink pulls it in, Undo reverts."""
     from tracecmr.contours import polygon_area
 
     ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
@@ -754,10 +760,10 @@ def test_grow_and_shrink_contour():
         z = int(viewer.dims.current_step[1])
         endo, epi = (0, z, "endo"), (0, z, "epi")
         a0, epi0 = polygon_area(e.curves[endo]), e.curves[epi].copy()
-        panel._smooth_points()  # dots hidden: growing keeps them hidden
+        panel._smooth_points()
         panel.btn_grow.click()
         a1 = polygon_area(e.curves[endo])
-        assert a1 > a0 and endo in e.hidden and endo in e.edited
+        assert a1 > a0 and endo in e.edited
         assert np.allclose(e.curves[epi], epi0)  # only the selected contour moves
         panel.btn_shrink.click()
         panel.btn_shrink.click()
@@ -952,7 +958,7 @@ def test_reopening_keeps_the_exact_points_no_creeping_tips(tmp_path):
         e.curves[(t, z, "rv")] = rv.copy()
         e.edited.add((t, z, "rv"))
         panel.cmb_add.setCurrentIndex(1)
-        panel._smooth_points()  # epi smoothed: its points hidden
+        panel._smooth_points()  # epi smoothed
         path = tmp_path / "m.tracecmr.npz"
         for cycle in range(5):
             panel.save_contours(quiet=True, path=path)
@@ -962,7 +968,6 @@ def test_reopening_keeps_the_exact_points_no_creeping_tips(tmp_path):
             e = panel.editor
             viewer.dims.current_step = (t, z, *viewer.dims.current_step[2:])
             assert np.allclose(e.curves[(t, z, "rv")], rv, atol=1e-4), f"RV moved after reopen {cycle + 1}"
-            assert (t, z, "epi") in e.hidden  # still smoothed
             ek = (t, z, "endo")
             e.move_point(ek, 0, e.curves[ek][0] + 0.01)  # an edit on the slice: it is re-rendered from the points
         # a slice changed outside the editor after saving (e.g. Auto LV) falls back to its pixels
@@ -970,5 +975,1043 @@ def test_reopening_keeps_the_exact_points_no_creeping_tips(tmp_path):
         s3.load_contours(path)
         s3.label[:, :, z, t] = 0
         assert not any(k[:2] == (t, z) for k in s3.curves_still_valid())
+    finally:
+        viewer.close()
+
+
+def test_export_all_workbook_images_and_study_table(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import openpyxl
+    from qtpy.QtCore import QSettings
+
+    from tracecmr.app import report
+
+    store = {"folders/contours": str(tmp_path / "results")}
+    monkeypatch.setattr(QSettings, "value", lambda self, key, *a, **k: store.get(key))
+    monkeypatch.setattr(QSettings, "setValue", lambda self, key, v: store.__setitem__(key, v))
+
+    def make(name):
+        ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+        es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+        return Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                       spacing=ed.spacing, subject_id=name, papillary="blood_pool", ed_frame=0, es_frame=1,
+                       source=str(tmp_path / f"{name}.h5"))
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(make("MouseA"))
+        out = panel.export_all()
+        wb = openpyxl.load_workbook(out["workbook"])
+        assert wb.sheetnames == ["Summary", "Per slice", "Wall segments", "Notes"]
+        summ = {r[0]: r[1] for r in wb["Summary"].iter_rows(min_row=2, values_only=True) if r[0]}
+        assert summ["LV ejection fraction (EF)"] == pytest.approx(panel.last[0].ef_pct, abs=0.01)
+        assert summ["Wall thickness method"].startswith("centerline")
+        segs = list(wb["Wall segments"].iter_rows(min_row=2, values_only=True))
+        assert len(segs) == 16
+        imgs = {p.name for p in (out["folder"] / "images").glob("*.png")}
+        assert {"bullseye_ED_wall.png", "bullseye_thickening.png", "montage_ED.png"} <= imgs
+        study = tmp_path / "results" / "study_summary.xlsx"
+        assert Path(out["study"]) == study
+        panel.export_all()  # again: the same row is updated, not duplicated
+        panel.load_session(make("MouseB"))
+        panel.export_all()
+        ws = openpyxl.load_workbook(study)["Mice"]
+        header = [c.value for c in ws[1]]
+        mice = [r[header.index("mouse")] for r in ws.iter_rows(min_row=2, values_only=True)]
+        assert sorted(mice) == ["MouseA", "MouseB"]
+        assert "ef_pct" in header and "mean_edwt_mm" in header and any(h.startswith("edwt_mm_") for h in header)
+        # without openpyxl: the same tables as CSV
+        monkeypatch.setattr(report, "_openpyxl", lambda: None)
+        out = panel.export_all()
+        assert Path(out["workbook"]).is_dir() and (Path(out["workbook"]) / "summary.csv").exists()
+        assert Path(out["study"]).suffix == ".csv"
+    finally:
+        viewer.close()
+
+
+def test_export_files_are_written_as_utf8(tmp_path, monkeypatch):
+    """Notes contain characters like '→'; Windows' default encoding can't write them, so every export file must say
+    its encoding (this crashed the first export on Windows)."""
+    import builtins
+    import pathlib
+
+    from tracecmr.app import report
+
+    real_open, real_write = builtins.open, pathlib.Path.write_text
+
+    def strict_open(file, mode="r", *a, **k):
+        if "b" not in mode and "encoding" not in k:
+            raise AssertionError(f"{file} opened without an encoding")
+        return real_open(file, mode, *a, **k)
+
+    def strict_write(self, data, *a, **k):
+        if "encoding" not in k:
+            raise AssertionError(f"{self} written without an encoding")
+        return real_write(self, data, *a, **k)
+
+    rep = {"summary": [("LV ejection fraction (EF)", 70.0, "%")], "settings": [("Mouse", "M→1")],
+           "per_slice": [{"slice": 1, "edv_ul": 1.0}], "segments": [{"aha": 1, "name": "anterior"}],
+           "notes": ["tick Settings → Mirror segment numbering", "⚠ check"], "study": {"mouse": "M→1", "ef_pct": 70}}
+    monkeypatch.setattr(builtins, "open", strict_open)
+    monkeypatch.setattr(pathlib.Path, "write_text", strict_write)
+    folder = report._write_mouse_csv(tmp_path / "m", rep)
+    monkeypatch.setattr(report, "_openpyxl", lambda: None)
+    study = report.update_study(tmp_path / "study_summary.xlsx", rep["study"], key="m")
+    study = report.update_study(tmp_path / "study_summary.xlsx", rep["study"], key="m")  # read back + rewrite
+    monkeypatch.setattr(builtins, "open", real_open)
+    assert "→" in (folder / "notes.txt").read_text(encoding="utf-8")
+    assert "M→1" in study.read_text(encoding="utf-8-sig")
+
+
+def _auto_lv_session(monkeypatch, tweak=None, unsure=None):
+    """A phantom mouse contoured by a fake Auto LV. tweak(z, t, lab) may alter the model's output for a slice;
+    unsure maps (t, z) to the model-unsure score it reports."""
+    from tracecmr import autocontour as ac
+
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    img = np.stack([ed.image, es.image], -1)
+    truth = np.stack([ed.label, es.label], -1)
+
+    def fake_pairs(image, spacing, pairs, model="ucl", unsure_out=None):
+        if unsure_out is not None:
+            unsure_out[:] = [(unsure or {}).get((t, z), 0.02) for z, t in pairs]
+        out = []
+        for z, t in pairs:
+            lab = truth[:, :, z, t].copy()
+            if tweak:
+                lab = tweak(z, t, lab)
+            out.append(lab)
+        return np.stack(out, axis=2)
+
+    monkeypatch.setattr(ac, "available", lambda: {"ucl": "ready"})
+    monkeypatch.setattr(ac, "run_pairs", fake_pairs)
+    return Session(image=img, label=np.zeros(img.shape, np.uint8), spacing=ed.spacing, subject_id="m",
+                   ed_frame=0, es_frame=1), truth
+
+
+def _contour_both(panel):
+    for t in (0, 1):
+        panel._show_frame(t)
+        panel.autocontour(sync=True)
+    panel.compute()
+
+
+def _flag_texts(panel, z):
+    item = next(it for it in panel._items() if it.data(0, Qt.ItemDataRole.UserRole) == z)
+    return item.text(0), item.toolTip(0)
+
+
+def test_double_check_flags_only_on_untouched_model_outlines(monkeypatch):
+    """Flags (model unsure, image, anatomy, Auto LV's base/apex notes) appear only while a slice is exactly the
+    model's outline; any edit makes it the user's and every flag on it goes."""
+    from scipy import ndimage as ndi
+
+    from tracecmr import labels as LB
+
+    def es_bigger(z, t, lab):  # the model draws slice 3's ES cavity bigger than its ED one
+        if (z, t) == (3, 1):
+            blood = lab == LB.LV_BLOODPOOL
+            lab[ndi.binary_dilation(blood, iterations=9) & (lab == LB.LV_MYOCARDIUM)] = LB.LV_BLOODPOOL
+        return lab
+
+    s, _ = _auto_lv_session(monkeypatch, tweak=es_bigger, unsure={(0, 4): 0.6})
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(s)
+        _contour_both(panel)
+        assert any("model unsure" in w for w in panel._checks.get((0, 4), []))
+        assert any("ES cavity is bigger" in w for w in panel._checks.get((1, 3), []))
+        text, tip = _flag_texts(panel, 4)
+        assert text.startswith("⚠") and "Double-check:" in tip and "model unsure" in tip
+        assert "Double-check slice(s)" in panel.lbl_notes.text()
+        e = panel.editor
+        for t, z in ((0, 4), (1, 3)):  # the user edits both slices (a tiny drag is enough)
+            step = list(viewer.dims.current_step); step[0], step[1] = t, z; viewer.dims.current_step = tuple(step)
+            k = (t, z, "endo")
+            e.move_point(k, 0, e.curves[k][0] + 0.05)
+        panel.compute()
+        assert (0, 4) not in panel._checks and (1, 3) not in panel._checks
+        assert "model unsure" not in _flag_texts(panel, 4)[1] and "ES cavity" not in _flag_texts(panel, 3)[1]
+    finally:
+        viewer.close()
+
+
+def test_no_flags_on_hand_drawn_slices_or_after_a_brush_edit(monkeypatch):
+    """Hand-drawn contours are never second-guessed; a pixel-brush edit (or any label change) also counts as
+    the user's outline, including for Auto LV's base/apex notes."""
+    from tracecmr import labels as LB
+
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    lab = np.stack([ed.label, es.label], -1)
+    lab[:, :, 3, 1] = lab[:, :, 3, 0]  # hand-drawn ES outline as big as ED: anatomy would object
+    s = Session(image=np.stack([ed.image, es.image], -1), label=lab, spacing=ed.spacing, subject_id="h",
+                papillary="blood_pool", ed_frame=0, es_frame=1)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(s)
+        panel.compute()
+        assert panel._checks == {}
+        assert not any(_flag_texts(panel, z)[0].startswith("⚠") for z in range(8)
+                       if any(it.data(0, Qt.ItemDataRole.UserRole) == z for it in panel._items()))
+    finally:
+        viewer.close()
+
+    s2, _ = _auto_lv_session(monkeypatch, unsure={(1, 2): 0.6})
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(s2)
+        _contour_both(panel)
+        assert (1, 2) in panel._checks
+        flagged_auto = {z for z in range(8) if any(it.data(0, Qt.ItemDataRole.UserRole) == z for it in panel._items())
+                        and "slice:" in _flag_texts(panel, z)[1]}
+        lab = panel.session.label.copy()  # a brush edit on every slice: paint one pixel of myocardium
+        for z in range(8):
+            for t in (0, 1):
+                if lab[:, :, z, t].any():
+                    yy, xx = np.nonzero(lab[:, :, z, t] == LB.LV_MYOCARDIUM)
+                    if len(yy):
+                        lab[yy[0], xx[0], z, t] = LB.LV_BLOODPOOL
+        viewer.layers["contours"].data = lab.transpose(3, 2, 1, 0).copy()
+        panel.rb_pixels.setChecked(True)
+        panel.compute()
+        assert panel._checks == {}
+        for z in flagged_auto:  # Auto LV's base/apex notes are gone too
+            assert "slice:" not in _flag_texts(panel, z)[1]
+    finally:
+        viewer.close()
+
+
+def test_including_the_papillary_is_not_flagged(monkeypatch):
+    """The reported case: the model outline is flagged; the user includes the papillary muscle (Grow / drag),
+    and the slice is no longer flagged even though the image check would disagree with the new outline."""
+    from tracecmr import labels as LB
+
+    def papillary(z, t, lab):  # the model leaves a big dark notch out of slice 4's ED cavity
+        if (z, t) == (4, 0):
+            yy, xx = np.nonzero(lab == LB.LV_BLOODPOOL)
+            cy, cx = int(np.mean(yy)), int(np.mean(xx))
+            lab[cy - 3:cy + 4, cx:cx + 12][lab[cy - 3:cy + 4, cx:cx + 12] == LB.LV_BLOODPOOL] = LB.LV_MYOCARDIUM
+        return lab
+
+    s, _ = _auto_lv_session(monkeypatch, tweak=papillary, unsure={(0, 4): 0.3})
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(s)
+        _contour_both(panel)
+        assert (0, 4) in panel._checks
+        step = list(viewer.dims.current_step); step[0], step[1] = 0, 4; viewer.dims.current_step = tuple(step)
+        for _ in range(3):
+            panel.grow_contour(0.5)
+        panel.compute()
+        assert (0, 4) not in panel._checks
+        assert not _flag_texts(panel, 4)[0].startswith("⚠")
+    finally:
+        viewer.close()
+
+
+def test_opening_another_mouse_detaches_the_old_editor(tmp_path):
+    """Each opened mouse gets a new editor; the old one must stop listening (it kept handling clicks and slice
+    changes on outlines no longer shown), and reopening from a late frame must not loop."""
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+
+    def make():
+        return Session(image=np.stack([ed.image, es.image, es.image], -1),
+                       label=np.stack([ed.label, es.label, np.zeros_like(es.label)], -1),
+                       spacing=ed.spacing, subject_id="p", papillary="blood_pool", ed_frame=0, es_frame=1)
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(make())
+        old = panel.editor
+        viewer.dims.current_step = (2, 7, *viewer.dims.current_step[2:])  # late frame, empty slice
+        panel.btn_wall.setChecked(True)
+        n_cb = len(viewer.mouse_drag_callbacks)
+        panel.load_session(make())
+        assert panel.editor is not old
+        assert old._on_mouse not in viewer.mouse_drag_callbacks and old.points is None
+        assert len(viewer.mouse_drag_callbacks) <= n_cb
+        panel.load_session(make())  # and again: no pile-up, no loop
+        assert len(viewer.mouse_drag_callbacks) <= n_cb
+        assert panel.editor.points is not None and "control points" in viewer.layers
+    finally:
+        viewer.close()
+
+
+def test_app_icon_is_the_tracecmr_logo():
+    from tracecmr.app.launch import ICON, set_icon
+
+    assert ICON.exists() and ICON.with_suffix(".ico").exists()
+    viewer = napari.Viewer(show=False)
+    try:
+        set_icon(viewer)
+        icon = viewer.window._qt_window.windowIcon()
+        assert not icon.isNull() and icon.availableSizes()
+    finally:
+        viewer.close()
+
+
+def test_start_screen_is_tracecmr_not_napari(tmp_path):
+    from qtpy.QtCore import QMimeData, QUrl
+    from qtpy.QtWidgets import QLabel
+
+    from tracecmr import __version__
+    from tracecmr.app import branding
+
+    assert branding.ICON_SVG.exists() and all(p.exists() for p in branding.LOGO.values())
+    viewer = napari.Viewer(show=False)
+    opened = []
+    try:
+        assert branding.start_screen(viewer, open_path=opened.append)
+        w = viewer.window._qt_viewer._welcome_widget
+        # napari's logo, "drag file(s) here", shortcuts and "Did you know?" tips are hidden
+        for part in (w._image, w._label, w._version_label, w._tip_label):
+            assert not part.isVisibleTo(w)
+        screen = w._tracecmr
+        assert screen.isVisibleTo(w)
+        texts = " ".join(l.text() for l in screen.findChildren(QLabel))
+        assert "Open a scan" in texts and __version__ in texts
+        assert "napari" not in texts.lower() and "did you know" not in texts.lower()
+        logo = screen.findChild(QLabel, "tracecmr_logo")
+        assert not logo.pixmap().isNull()
+        viewer.theme = "light"  # logo and text recoloured for the light theme without errors
+        assert not logo.pixmap().isNull()
+
+        # a mouse folder dropped on the start screen opens in TraceCMR, not napari's reader
+        class Ev:
+            def __init__(self, md):
+                self.md = md
+
+            def mimeData(self):
+                return self.md
+
+            def acceptProposedAction(self):
+                pass
+
+        md = QMimeData()
+        md.setUrls([QUrl.fromLocalFile(str(tmp_path))])
+        w.urls_dropped.emit(Ev(md))
+        assert opened == [tmp_path]
+    finally:
+        viewer.close()
+
+
+def test_interface_font_is_bundled_inter():
+    from qtpy.QtGui import QFontInfo
+    from qtpy.QtWidgets import QApplication
+
+    from tracecmr.app import branding
+
+    files = sorted(p.name for p in branding.FONT_DIR.glob("*.ttf"))
+    assert files == ["Inter-Bold.ttf", "Inter-Regular.ttf"] and (branding.FONT_DIR / "OFL.txt").exists()
+    assert "Inter" in branding.load_fonts()
+    app = QApplication.instance()
+    before = app.font()
+    try:
+        assert branding.use_app_font()
+        assert QFontInfo(app.font()).family() == "Inter"
+    finally:
+        app.setFont(before)
+    for logo in branding.LOGO.values():  # wordmark is outlines, so it never depends on an installed font
+        assert "<text" not in logo.read_text()
+
+
+def test_splash_screen_shows_and_closes():
+    from tracecmr.app.branding import Splash
+
+    s = Splash()
+    try:
+        assert s.widget.isVisible() and s.text == "Starting" and s.fraction == 0
+        s.progress(0.5)
+        s.progress(0.3, "Almost ready")  # the line never goes backwards
+        assert s.fraction == 0.5 and s.text == "Almost ready"
+    finally:
+        s.close()
+    assert not s.widget.isVisible()
+
+
+def test_desktop_app_writes_messages_to_a_log(tmp_path, monkeypatch):
+    import sys
+
+    from tracecmr.app import launch
+
+    log = tmp_path / "logs" / "tracecmr_log.txt"
+    monkeypatch.setenv("TRACECMR_LOG", str(log))
+    monkeypatch.setattr(sys, "stdout", None)  # what pythonw / tracecmr-app gives the program
+    monkeypatch.setattr(sys, "stderr", None)
+    import faulthandler
+
+    try:
+        assert launch._windowless_output() == log
+        print("hello from the app")
+        sys.stdout.flush()
+    finally:
+        faulthandler.disable()
+    text = log.read_text(encoding="utf-8")
+    assert "TraceCMR started" in text and "hello from the app" in text
+
+
+def test_model_folder_from_environment_is_remembered(qtbot, monkeypatch, tmp_path):
+    from tracecmr.app._widget import _settings
+
+    st = _settings()
+    old = st.value("models/ucl")
+    st.remove("models/ucl")
+    monkeypatch.setenv("TRACECMR_UCL_DIR", str(tmp_path))
+    viewer = napari.Viewer(show=False)
+    try:
+        TraceCMRWidget(viewer)
+        assert st.value("models/ucl") == str(tmp_path)
+    finally:
+        viewer.close()
+        if old is not None:
+            st.setValue("models/ucl", old)
+        else:
+            st.remove("models/ucl")
+
+
+def test_charts_render_once_after_resizing_stops(qtbot):
+    from matplotlib.figure import Figure
+
+    from tracecmr.app._widget import SmoothCanvas
+
+    fig = Figure(figsize=(3, 2))
+    fig.add_subplot().plot([0, 1], [0, 1])
+    c = SmoothCanvas(fig, delay_ms=50)
+    qtbot.addWidget(c)
+    c.resize(300, 200)
+    c.show()
+    qtbot.waitExposed(c)
+    c.draw()
+    renders = []
+    c.mpl_connect("resize_event", lambda e: renders.append(e))
+    for w in range(310, 400, 10):  # a drag: many sizes in quick succession
+        c.resize(w, 200)
+        qtbot.wait(5)
+    assert renders == [] and c._pending is not None  # nothing re-rendered while dragging
+    qtbot.wait(150)
+    assert len(renders) == 1 and c._pending is None  # one crisp render at the final size
+    assert c.get_width_height()[0] == c.width()
+
+
+def test_slice_table_headers_fit():
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    s = Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                spacing=ed.spacing, subject_id="phantom", papillary="blood_pool", ed_frame=0, es_frame=1)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(s)
+        panel.compute()
+        hdr = panel.tbl_slices.horizontalHeader()
+        fm = hdr.fontMetrics()
+        panel.tbl_slices.resize(260, 300)  # a narrow side panel
+        for c in range(1, 5):
+            text = panel.tbl_slices.horizontalHeaderItem(c).text()
+            assert "\n" not in text and hdr.sectionSize(c) >= fm.horizontalAdvance(text)
+        assert sum(hdr.sectionSize(c) for c in range(5)) <= panel.tbl_slices.viewport().width() + 1
+    finally:
+        viewer.close()
+
+
+def test_panels_can_be_hidden_and_brought_back():
+    from qtpy.QtWidgets import QDockWidget
+
+    from tracecmr.app._widget import setup_dock
+    from tracecmr.app.launch import add_panels_menu
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        right = viewer.window.add_dock_widget(panel, name="TraceCMR", area="right")
+        setup_dock(right)
+        docks = [right] + panel.docks
+        assert sorted(d.windowTitle() for d in docks) == ["Results", "Scans", "Time bar", "Toolbar"]
+        for d in docks:
+            assert d.features() == QDockWidget.DockWidgetFeature.DockWidgetClosable  # hide yes, tear off no
+        assert hasattr(right.titleBarWidget(), "close_btn")  # side panels: header with a ×
+        add_panels_menu(viewer, docks)
+        menu = viewer.window._tracecmr_panels_menu
+        names = [a.text() for a in menu.actions() if a.text()]
+        assert names == ["Scans", "Toolbar", "Results", "Time bar", "Show all panels"]
+        viewer.window._qt_window.show()
+        right.titleBarWidget().close_btn.click()  # the ×
+        assert right.isHidden() and "Results button" in viewer.status
+        tick = next(a for a in menu.actions() if a.text() == "Results")
+        assert not tick.isChecked()
+        tick.trigger()  # tick it again in the menu
+        assert not right.isHidden()
+        for d in docks:
+            d.close()
+        viewer.window._tracecmr_restore.trigger()  # Ctrl+Shift+R
+        assert all(not d.isHidden() for d in docks)
+    finally:
+        viewer.close()
+
+
+def test_logo_trace_draw_in():
+    from tracecmr.app import branding
+
+    full = branding._logo_pixmap("dark", 280, 1.0).toImage()
+    none = branding._logo_pixmap("dark", 280, 0.0).toImage()
+    half = branding._logo_pixmap("dark", 280, 0.5).toImage()
+
+    def red(img):
+        n = 0
+        for x in range(0, img.width(), 2):
+            for y in range(0, img.height(), 2):
+                c = img.pixelColor(x, y)
+                n += c.alpha() > 100 and c.red() > 150 and c.green() < 140
+        return n
+
+    assert red(none) == 0 < red(half) < red(full)
+
+
+def test_scans_results_focus_buttons(qtbot):
+    from tracecmr.app._widget import setup_dock
+
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    s = Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                spacing=ed.spacing, subject_id="phantom", papillary="blood_pool", ed_frame=0, es_frame=1)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        right = viewer.window.add_dock_widget(panel, name="TraceCMR", area="right")
+        setup_dock(right)
+        win = viewer.window._qt_window
+        win.resize(1400, 900)
+        viewer.window.show()
+        panel.load_session(s)
+        qtbot.waitUntil(lambda: getattr(panel, "_panels_wired", False), timeout=3000)
+        left, r = panel._side_docks()
+        assert r is right and left is not None
+        assert panel.btn_left.isChecked() and panel.btn_right.isChecked() and not panel.btn_focus.isChecked()
+
+        panel.btn_right.click()  # hide Results with its button
+        assert right.isHidden() and not panel.btn_right.isChecked()
+        right.titleBarWidget().close_btn.click() if not right.isHidden() else None
+        panel.btn_right.click()  # and back
+        assert not right.isHidden()
+        left.titleBarWidget().close_btn.click()  # hide Scans with its ×: the button follows
+        assert not panel.btn_left.isChecked()
+        panel.btn_left.click()
+        assert not left.isHidden()
+
+        z0 = panel._camera.zoom
+        panel.btn_focus.click()  # Focus: both side panels go, the image grows to use the room
+        qtbot.wait(100)
+        time_bar = next(d for d in panel.docks if d.objectName() == "Time")
+        assert left.isHidden() and right.isHidden() and time_bar.isHidden() and panel.btn_focus.isChecked()
+        assert panel._camera.zoom > z0 * 1.05
+        panel.btn_focus.click()  # back to the layout before
+        qtbot.wait(100)
+        assert not left.isHidden() and not right.isHidden() and not time_bar.isHidden()
+        assert abs(panel._camera.zoom / z0 - 1) < 0.02  # and the same framing as before
+    finally:
+        viewer.close()
+
+
+def _phantom_session():
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    return Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                   spacing=ed.spacing, subject_id="phantom", papillary="blood_pool", ed_frame=0, es_frame=1)
+
+
+def test_toolbar_groups_and_dropdowns(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        shown = [b for grp in panel.toolbar_groups for b in grp]
+        assert len(shown) <= 18  # one button per job
+        for b in (panel.btn_ucl, panel.btn_snap, panel.btn_fit, panel.btn_grow, panel.btn_shrink, panel.btn_raw,
+                  panel.btn_contrast, panel.btn_zoom_in, panel.btn_zoom_out):
+            assert b not in shown and b.isHidden()
+        texts = [a.text() for a in panel.btn_refine.menu().actions()]
+        assert any(t.startswith("Grow") for t in texts) and any(t.startswith("Snap") for t in texts)
+        assert [a.text() for a in panel.btn_dcm.menu().actions()][1].startswith("Add UCL")
+        # a menu entry does what its folded-away button does
+        hits = []
+        panel.btn_grow.clicked.connect(lambda: hits.append(1))
+        next(a for a in panel.btn_refine.menu().actions() if a.text().startswith("Grow")).trigger()
+        assert hits
+        # universal keys: + / − zoom (also with Ctrl and on the keypad), Ctrl+0 centers, Delete clears
+        keys = set(getattr(panel, "_key_shortcuts", []))
+        assert {"+", "=", "-", "Control-0", "Delete", "Backspace"} <= keys
+        # every dropdown entry is a styled row with its keycaps
+        grow = next(a for a in panel.btn_refine.menu().actions() if a.text().startswith("Grow"))
+        assert [c.text() for c in grow.defaultWidget().caps] == ["]"]
+        # Hide contours in View follows the H key / Raw button both ways
+        panel.act_raw.setChecked(True)
+        assert panel.btn_raw.isChecked()
+        panel.btn_raw.setChecked(False)
+        assert not panel.act_raw.isChecked()
+    finally:
+        viewer.close()
+
+
+def test_smooth_image_and_structure_keys(qtbot):
+    from tracecmr.app._widget import _settings
+
+    before = _settings().value("view/smooth_image")
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel.set_smooth_image(True)
+        assert viewer.layers["image"].interpolation2d == "cubic" and panel.act_smooth_image.isChecked()
+        panel.set_smooth_image(False)
+        assert viewer.layers["image"].interpolation2d == "nearest" and not panel.act_smooth_image.isChecked()
+        panel.btn_endo.click()
+        panel.cycle_structure()
+        assert panel.btn_epi.isChecked()
+        panel.cycle_structure()
+        panel.cycle_structure()
+        assert panel.btn_endo.isChecked()  # RV wraps back to Endo
+    finally:
+        viewer.close()
+        if before is None:
+            _settings().remove("view/smooth_image")
+        else:
+            _settings().setValue("view/smooth_image", before)
+
+
+def test_shortcut_sheet_lists_the_bound_keys(qtbot):
+    from tracecmr.app.help import SHORTCUTS, ShortcutSheet
+
+    keys = {k for _, rows in SHORTCUTS for k, _ in rows}
+    for k in ("Q", "G", "K", "H", "W", "F", "?", "Ctrl+Z", "Ctrl+S"):
+        assert k in keys
+    sheet = ShortcutSheet()
+    qtbot.addWidget(sheet)
+    sheet.popup()
+    assert sheet.isVisible()
+    qtbot.keyClick(sheet, Qt.Key.Key_Escape)
+    assert not sheet.isVisible()
+
+
+def test_first_run_tour(qtbot, monkeypatch):
+    from tracecmr.app._widget import _settings, setup_dock
+
+    before = _settings().value("tour/seen")
+    monkeypatch.delenv("TRACECMR_NO_TOUR", raising=False)
+    _settings().remove("tour/seen")
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        right = viewer.window.add_dock_widget(panel, name="TraceCMR", area="right")
+        setup_dock(right)
+        win = viewer.window._qt_window
+        win.resize(1400, 900)
+        viewer.window.show()
+        panel.load_session(_phantom_session())
+        qtbot.waitUntil(lambda: getattr(panel, "_panels_wired", False), timeout=3000)
+        panel.maybe_start_tour()
+        tour = panel._tour
+        assert tour.isVisible() and tour.index == 0 and tour.geometry() == win.rect()
+        for i in range(1, len(tour.steps)):
+            qtbot.keyClick(tour, Qt.Key.Key_Right)
+            assert tour.index == i
+            if tour.steps[i].target is not None:
+                assert not tour._target_rect(tour.steps[i]).isNull(), tour.steps[i].title  # each stop finds its part
+        qtbot.keyClick(tour, Qt.Key.Key_Left)
+        assert tour.index == len(tour.steps) - 2
+        tour.next()
+        tour.next()  # Done
+        assert not tour.isVisible()
+        assert str(_settings().value("tour/seen")).lower() == "true"
+        panel._tour = None
+        panel.maybe_start_tour()  # seen: not again
+        assert panel._tour is None
+    finally:
+        viewer.close()
+        if before is None:
+            _settings().remove("tour/seen")
+        else:
+            _settings().setValue("tour/seen", before)
+
+
+def test_roi_tool_measures_compares_and_exports(qtbot, tmp_path):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        assert not panel.roi.table.isVisible() or panel.roi.table.rowCount() == 0
+        panel.session.image = panel.session.image + np.random.default_rng(0).normal(0, 0.05, panel.session.image.shape)
+        panel.btn_roi.setChecked(True)
+        assert panel.roi.active and panel.editor.suspended
+        t, z = (int(v) for v in viewer.dims.current_step[:2])
+        panel.roi.add({"kind": "circle", "t": t, "z": z, "cx": 30.0, "cy": 30.0, "r_mm": 0.3})
+        panel.roi.add({"kind": "freehand", "t": t, "z": z, "pts": [[2, 2], [8, 2], [8, 8], [2, 8]]})
+        assert panel.roi.table.rowCount() == 2 and "rois" in viewer.layers
+        assert len(viewer.layers["rois"].data) == 2  # both drawn on this slice
+        r = panel.roi.ratios()
+        assert r is not None and np.isfinite(r["snr_a"])
+        # rename by editing the name cell: the comparison follows
+        panel.roi.table.item(0, 0).setText("blood")
+        assert panel.session.rois[0]["name"] == "blood" and panel.roi.cmb_a.currentText() == "blood"
+        out = panel.roi.export_csv(tmp_path / "rois.csv")
+        text = out.read_text()
+        assert "blood" in text and "CNR" in text
+        # Delete in ROI mode removes the selected region, not the contour
+        panel.roi.table.selectRow(1)
+        panel._delete_key()
+        assert len(panel.session.rois) == 1
+        panel._escape()  # Esc leaves ROI mode and editing comes back
+        assert not panel.btn_roi.isChecked() and not panel.editor.suspended
+    finally:
+        viewer.close()
+
+
+def test_hide_contours_comes_back_without_rebuilding(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        e = panel.editor
+        z = int(viewer.dims.current_step[1])
+        e.move_point((0, z, "endo"), 0, e.curves[(0, z, "endo")][0] + 0.7)  # an edit not yet written back
+        curves_before = e.curves
+        panel.btn_raw.setChecked(True)
+        assert not viewer.layers["curves"].visible and not viewer.layers["control points"].visible
+        panel.btn_raw.setChecked(False)
+        assert viewer.layers["curves"].visible and viewer.layers["control points"].visible
+        assert e.curves is curves_before and (0, z, "endo") in e.edited  # same curves, nothing rebuilt or lost
+    finally:
+        viewer.close()
+
+
+def test_toolbar_hover_cards():
+    from tracecmr.app.hints import PROP, HintCard
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        for grp in panel.toolbar_groups:
+            for b in grp:
+                hint = b.property(PROP)
+                assert hint and hint["title"] and (hint["body"] or hint["keys"]), b.text()
+        assert panel.btn_smooth.property(PROP)["keys"] == ["S"]
+        card = HintCard()
+        card.fill(panel.btn_save.property(PROP))
+        assert card.title.text() == "Save" and card.keys_row.count() == 2
+        assert {"s", "p"} <= set(panel._key_shortcuts)
+    finally:
+        viewer.close()
+
+
+def test_letter_keys_work_after_clicking_a_list_or_button(qtbot):
+    """S, P and + reach TraceCMR wherever the focus is, not only when the image has it."""
+    from qtpy.QtTest import QTest
+
+    from tracecmr.app._widget import setup_dock
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        setup_dock(viewer.window.add_dock_widget(panel, name="TraceCMR", area="right"))
+        viewer.window.show()
+        panel.load_session(_phantom_session())
+        win = viewer.window._qt_window
+        calls = []
+        orig = panel._smooth_points
+        panel._smooth_points = lambda: (calls.append(1), orig())
+        assert panel.list.focusPolicy() == Qt.FocusPolicy.NoFocus  # the slice list never takes the keyboard
+        panel.btn_export.setFocus()  # e.g. after clicking a button in the Results panel
+        QTest.keyClick(QApplication.focusWidget() or win, Qt.Key.Key_S)
+        assert calls
+        QTest.keyClick(QApplication.focusWidget() or win, Qt.Key.Key_P)
+        assert not panel.btn_points.isChecked()
+        z0 = panel._camera.zoom
+        QTest.keyClick(QApplication.focusWidget() or win, Qt.Key.Key_Plus, Qt.KeyboardModifier.ShiftModifier, )
+        assert panel._camera.zoom > z0
+    finally:
+        viewer.close()
+
+
+def test_results_tabs_follow_the_tools(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        tabs = panel.results_tabs
+        assert list(tabs.index) == ["function", "wall", "regions"] and tabs.current() == "function"
+        panel.btn_roi.setChecked(True)  # the ROI tool opens the Regions tab
+        assert tabs.current() == "regions"
+        panel.btn_roi.setChecked(False)
+        panel.btn_wall.setChecked(True)  # Wall opens the Wall tab, and its tick there follows
+        assert tabs.current() == "wall" and panel.chk_wall_lines.isChecked()
+        panel.rb_wall_thickening.setChecked(True)
+        assert panel.wall_mode == "thickening"
+        tabs.show("function")
+        assert panel.results_stack.currentIndex() == 0 and tabs.buttons["function"].isChecked()
+        tabs.show("wall")  # picking Wall turns the lines on
+        panel.chk_wall_lines.setChecked(False)
+        assert not panel.btn_wall.isChecked()
+        assert {"Control-1", "Control-2", "Control-3"} <= set(panel._key_shortcuts)
+    finally:
+        viewer.close()
+
+
+def test_results_update_without_a_compute_button(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        assert panel.btn_compute.isHidden()
+        qtbot.waitUntil(lambda: panel.res_labels["ef_pct"].text() not in ("–", ""), timeout=3000)
+        e = panel.editor
+        z = int(viewer.dims.current_step[1])
+        before = panel.res_labels["edv_ul"].text()
+        e.offset(0, z, 1.0)  # grow the endocardium: EDV follows by itself
+        qtbot.waitUntil(lambda: panel.res_labels["edv_ul"].text() != before, timeout=3000)
+    finally:
+        viewer.close()
+
+
+def test_redo_puts_back_an_undone_edit(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        e = panel.editor
+        z = int(viewer.dims.current_step[1])
+        key = (0, z, "endo")
+        before = e.curves[key].copy()
+        e.offset(0, z, 1.0)
+        grown = e.curves[key].copy()
+        panel.undo()
+        assert np.allclose(e.curves[key], before)
+        panel.redo()
+        assert np.allclose(e.curves[key], grown)
+        panel.redo()  # nothing more to redo
+        assert "Nothing to redo" in panel.lbl_auto.text()
+        panel.undo()
+        e.offset(0, z, -0.5)  # a new edit ends the redo history
+        assert not e._redo
+    finally:
+        viewer.close()
+
+
+def test_autosave_and_recovery(qtbot, tmp_path, monkeypatch):
+    from qtpy.QtWidgets import QMessageBox
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        monkeypatch.setattr(panel, "contours_dir", lambda: tmp_path)
+        s = _phantom_session()
+        s.source = str(tmp_path / "MouseX")
+        panel.load_session(s)
+        qtbot.wait(20)
+        assert panel.autosave.tick() is None  # nothing changed yet: nothing written
+        z = int(viewer.dims.current_step[1])
+        panel.editor.offset(0, z, 1.0)
+        rec = panel.autosave.tick()
+        assert rec is not None and rec.exists()
+        changed = panel.editor.apply_to(panel.session.label)
+        # reopen the same scan as if TraceCMR had crashed: the change is offered and restored
+        s2 = _phantom_session()
+        s2.source = s.source
+        panel._recovery_answer = QMessageBox.StandardButton.Yes
+        panel.load_session(s2)
+        qtbot.waitUntil(lambda: "restored" in panel.lbl_auto.text(), timeout=3000)
+        assert np.array_equal(panel.session.label, changed)
+        panel._sync_labels()  # the contours on screen are the restored ones too (not the pre-crash points)
+        assert np.array_equal(panel.session.label, changed)
+        assert np.array_equal(panel.editor.apply_to(panel.session.label), changed)
+        panel.save_contours(quiet=True, path=tmp_path / "MouseX.tracecmr.npz")
+        assert not rec.exists()  # a normal save removes the recovery file
+    finally:
+        viewer.close()
+
+
+def test_ruler(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        t, z = (int(v) for v in viewer.dims.current_step[:2])
+        dx, dy, _ = panel.session.spacing
+        panel.roi.add({"kind": "line", "t": t, "z": z, "pts": [[10.0, 10.0], [10.0 + 3 / dx, 10.0 + 4 / dy]]})
+        assert panel.session.rois[-1]["name"] == "Ruler 1"
+        assert panel.roi.table.item(0, 1).text() == "5.00 mm"
+        assert "5.00 mm" in panel.lbl_auto.text()
+        assert panel.roi.ratios() is None  # a ruler is not a region to compare
+    finally:
+        viewer.close()
+
+
+def test_problem_report(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setenv("TRACECMR_LOG", str(tmp_path / "logs" / "tracecmr_log.txt"))
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "tracecmr_log.txt").write_text("hello\nsomething went wrong\n")
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel._report_problem()
+        reports = list((tmp_path / "logs").glob("TraceCMR_problem_report_*.txt"))
+        assert reports and "something went wrong" in reports[0].read_text() and "TraceCMR" in reports[0].read_text()
+    finally:
+        viewer.close()
+
+
+def test_ed_es_side_by_side_and_figures(qtbot, tmp_path):
+    from tracecmr.app.compare import save_all_slices_figure, save_slice_figure, slice_contours
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel.show_compare()
+        win = panel._compare
+        assert win.is_open() and "slice" in win.title.text()
+        assert win.dock is None  # a view over the image, not a panel or a popup
+        panel.show_compare()  # Ctrl+E again hides it
+        assert not win.is_open()
+        panel.show_compare()
+        assert win.is_open()
+        z = panel.current_slice()
+        assert {"endo", "epi"} <= set(slice_contours(panel, panel.session.t_for(z, "ES"), z))
+        panel.step_slice(1)  # follows the slice
+        qtbot.waitUntil(lambda: f"slice {panel.current_slice()}" in win.title.text(), timeout=2000)
+        one = save_slice_figure(panel, panel.current_slice(), tmp_path / "pair.png", **win.opts())
+        allz = save_all_slices_figure(panel, tmp_path / "all.pdf", **win.opts())
+        assert one.stat().st_size > 10_000 and allz.stat().st_size > 5_000
+        from PIL import Image
+
+        w, h = Image.open(one).size
+        assert w >= 1500  # 300 dpi
+    finally:
+        viewer.close()
+
+
+def test_fast_dot_drag_keeps_layers_in_sync():
+    import numpy as np
+    from vispy.visuals.mesh import MeshVisual
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        e = panel.editor
+        t, z = e._here()
+        key = next(k for k in sorted(e.curves) if k[:2] == (t, z))
+        e._last_draw = 0.0
+        e.move_point(key, 2, e.curves[key][2] + 1.5)
+        e._drag_update(key, 2)  # only that dot and that contour are redrawn
+        row = [r for r, k in enumerate(e._keys) if k == key][2]
+        x, y = e.curves[key][2]
+        assert np.allclose(e.points.data[row, 2:], (y, x))
+        assert np.allclose(e.shapes.data[e._shape_of[key]], e._outline(key))
+        mesh = MeshVisual()  # shapes redraws reuse their colour function, so the shader is not recompiled
+        rgba = np.ones((3, 4), np.float32)
+        assert mesh._build_color_transform(rgba) is mesh._build_color_transform(rgba)
+    finally:
+        viewer.close()
+
+
+def test_dot_grab_radius_grows_with_zoom():
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        e = panel.editor
+        viewer.camera.zoom = 10
+        far = e._tol_px()
+        viewer.camera.zoom = 2000  # zoomed right in: the drawn dot is bigger than 12 screen pixels
+        assert e._tol_px() >= e.DOT_SIZE / 2 + 0.25 and e._tol_px() <= far
+        t, z = e._here()
+        key = next(k for k in sorted(e.curves) if k[:2] == (t, z))
+        p = e.curves[key][0] + (0.6, 0.3)  # on the dot's rim (0.67 px from its centre)
+        assert e.hit(t, z, p, e._tol_px()) == ("point", key, 0)
+    finally:
+        viewer.close()
+
+
+def test_ed_es_view_zooms_and_pans_together(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel.show_compare()
+        v = panel._compare.view
+        assert v.zoom == 1.0
+        panel.zoom(2.0)  # + goes to the pair while the view is up
+        assert v.zoom == 2.0
+        v.pan = [30.0, -10.0]
+        panel.fit_heart()  # F / Ctrl+0 fit the pair again
+        assert v.zoom == 1.0 and v.pan == [0.0, 0.0]
+        v.zoom_by(0.5)  # never below fit
+        assert v.zoom == 1.0
+    finally:
+        viewer.close()
+
+
+def test_ed_es_same_crop_for_all_slices(qtbot, tmp_path):
+    from tracecmr.app.compare import pair_frames, save_all_slices_figure
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        s = panel.session
+        zs = [z for z in s.order if z in s.included["ED"]]
+        per = {z: pair_frames(panel, z, crop=True)["box"] for z in zs}
+        same = {z: pair_frames(panel, z, crop="all")["box"] for z in zs}
+        assert len(set(same.values())) == 1  # one box for every slice
+        box = next(iter(same.values()))
+        for z, (xa, xb, ya, yb) in per.items():  # ... that contains each slice's own crop
+            assert box[0] <= xa and box[1] >= xb and box[2] <= ya and box[3] >= yb
+        panel.show_compare()
+        panel._compare.cmb_crop.setCurrentIndex(1)
+        assert panel._compare.opts()["crop"] == "all"
+        out = save_all_slices_figure(panel, tmp_path / "all.png", **panel._compare.opts())
+        assert out.stat().st_size > 5_000
+    finally:
+        viewer.close()
+
+
+def test_ed_es_lock_crop_keeps_one_window_on_every_slice(qtbot):
+    from tracecmr.app.compare import pair_frames
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel.show_compare()
+        c = panel._compare
+        c.view.resize(800, 400)
+        c.refresh(now=True)
+        c.view.zoom_by(2.0)  # zoom in on this slice, then lock
+        c.btn_lock.setChecked(True)
+        box = c.locked_box
+        assert box is not None and c.view.zoom == 1.0 and c.opts()["crop"] == box
+        own = pair_frames(panel, panel.current_slice(), crop=True)["box"]
+        assert box[1] - box[0] < own[1] - own[0]  # the zoomed window is smaller than the slice's own crop
+        panel.step_slice(1)
+        qtbot.waitUntil(lambda: c.view.frames["box"] == box, timeout=2000)  # the same window on the next slice
+        c.btn_lock.setChecked(False)
+        assert c.opts()["crop"] is True
     finally:
         viewer.close()

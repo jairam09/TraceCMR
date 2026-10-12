@@ -87,11 +87,15 @@ class Session:
     contoured_by: str = ""
     mirror_segments: bool = False  # wall segments: slices seen from the base, not the apex (Settings)
     septum_manual: dict[int, float] = field(default_factory=dict)  # slice -> septum angle set by hand (degrees)
+    rois: list = field(default_factory=list)  # regions of interest drawn with the ROI tool (see app/roi.py)
     # the editor's interpolation points as the user left them, so reopening shows exactly what was drawn (rebuilding
     # them from pixels smooths sharp tips a little every time); used only on slices whose pixels still match
     saved_curves: dict = field(default_factory=dict)  # (frame, slice, "endo"/"epi"/"rv") -> (n, 2) points
     saved_hidden: set = field(default_factory=set)  # keys smoothed with their points hidden
     saved_curve_hash: dict = field(default_factory=dict)  # (frame, slice) -> hash of that slice's labels
+    # Auto LV's "model unsure" score per (frame, slice), with the slice's label hash at that time: it only counts
+    # while the slice is still the model's outline (quality.py)
+    model_unsure: dict = field(default_factory=dict)
     # Per-slice ED/ES (Segment-style): when each short-axis slice is its own cine acquisition, the user
     # picks end-diastole and end-systole in each slice's cine. Slices not listed use ed_frame/es_frame.
     separate_slices: bool = False
@@ -188,6 +192,8 @@ class Session:
             "reasons": {ph: {str(k): v for k, v in r.items()} for ph, r in self.reasons.items()},
             "papillary": self.papillary, "contoured_by": self.contoured_by,
             "septum_manual": {str(k): float(v) for k, v in self.septum_manual.items()},
+            "rois": [dict(r) for r in self.rois],
+            "model_unsure": {f"{t},{z}": [float(v[0]), v[1]] for (t, z), v in self.model_unsure.items()},
         }
         curve_extra = {}
         if self.saved_curves:
@@ -234,6 +240,9 @@ class Session:
         self.papillary = meta.get("papillary")
         self.contoured_by = meta.get("contoured_by", "")
         self.septum_manual = {int(k): float(v) for k, v in meta.get("septum_manual", {}).items()}
+        self.rois = [dict(r) for r in meta.get("rois", [])]
+        self.model_unsure = {tuple(int(x) for x in k.split(",")): (float(v[0]), v[1])
+                             for k, v in meta.get("model_unsure", {}).items()}
         self.saved_curves, self.saved_hidden, self.saved_curve_hash = {}, set(), {}
         if curve_points is not None and meta.get("curves"):
             i = 0
@@ -250,6 +259,11 @@ class Session:
         import hashlib
 
         return hashlib.sha1(np.ascontiguousarray(self.label[:, :, z, t]).tobytes()).hexdigest()
+
+    def valid_unsure(self) -> dict:
+        """Model unsure scores for slices still exactly as Auto LV drew them."""
+        return {k: v[0] for k, v in self.model_unsure.items()
+                if k[1] < self.label.shape[2] and k[0] < self.label.shape[3] and self.slice_hash(*k) == v[1]}
 
     def curves_still_valid(self) -> dict:
         """Saved interpolation points for slices whose labels haven't changed since they were saved."""
@@ -341,8 +355,7 @@ class Session:
                     cover = wall_cover(img[:, :, z], blood, wall, ref_ratio)
                     basal = drawn.index(z) < 2
                     if basal and cover < min_wall_cover:
-                        res[z] = (True, f"check: basal, only {cover:.0%} of the ring looks like muscle "
-                                        "(outflow tract/atrium?)")
+                        res[z] = (True, f"check: basal, only {cover:.0%} of the ring is muscle (outflow or atrium?)")
                     else:
                         res[z] = (True, f"wall covers {cover:.0%}")
             out[ph] = res
@@ -389,7 +402,8 @@ class Session:
         """Contour only the given (slice, frame) images; contours elsewhere are kept. Returns a status line."""
         from .. import autocontour as ac
 
-        lab = ac.run_pairs(self.image, self.spacing, pairs, model)
+        unsure: list = []
+        lab = ac.run_pairs(self.image, self.spacing, pairs, model, unsure_out=unsure)
         new = self.label.copy()
         for k, (z, t) in enumerate(pairs):
             old_rv = new[:, :, z, t] == L.RV_BLOODPOOL
@@ -408,15 +422,14 @@ class Session:
         for k, (z, t) in enumerate(pairs):  # apex at end-systole: a cavity of a few pixels is unreliable
             n_blood = int((lab[:, :, k] == L.LV_BLOODPOOL).sum())
             if 0 < n_blood < 25 and (t, z) not in flags:
-                flags[(t, z)] = "tiny cavity: check the endo (redraw it, or Clear it if the cavity has closed)"
+                flags[(t, z)] = "tiny cavity: check the endo (redraw, or Clear if closed)"
         done = set(pairs)
         for t in sorted({t for _, t in pairs}):  # the end slices are the least reliable, for people and models
             zs = [z for z in self.order if np.isin(new[:, :, z, t], (L.LV_BLOODPOOL, L.LV_MYOCARDIUM)).any()]
             if len(zs) < 2:
                 continue
-            for z, why in ((zs[0], "base slice: double-check it's ventricle (not atrium or outflow) and fix the "
-                                   "outline"),
-                           (zs[-1], "apex slice: double-check the outline (or leave it out if there's no cavity)")):
+            for z, why in ((zs[0], "base slice: check it's ventricle, not atrium or outflow"),
+                           (zs[-1], "apex slice: check the outline (or leave it out)")):
                 if (z, t) in done and (t, z) not in flags:
                     flags[(t, z)] = why
         if compare_with:
@@ -435,6 +448,10 @@ class Session:
         for k, (z, t) in enumerate(pairs):
             self.model_label[:, :, z, t] = lab[:, :, k]
             self.model_ran[z, t] = True
+            if k < len(unsure) and unsure[k] is not None:
+                self.model_unsure[(t, z)] = (float(unsure[k]), self.slice_hash(t, z))
+            else:
+                self.model_unsure.pop((t, z), None)
         self.papillary = ac.MODELS[model].papillary
         self.contoured_by = ac.MODELS[model].label
         self.flags = {**{k: v for k, v in self.flags.items() if k not in {(t, z) for z, t in pairs}}, **flags}
@@ -445,9 +462,8 @@ class Session:
         msg = f"Contoured {len(pairs)} slice(s) at {what} with the {ac.MODELS[model].label}."
         msg += f" {len(flags)} slice(s) flagged for review." if flags else " No slices flagged."
         if empty:
-            msg += (f" ⚠ The model found no LV on slice(s) {', '.join(map(str, sorted(empty)))} (too small or too "
-                    "little contrast, common at the apex): draw it by hand (click points around it, right-click "
-                    "to close), or leave it out if there's no cavity.")
+            msg += (f" ⚠ No LV found on slice(s) {', '.join(map(str, sorted(empty)))} (common at the apex): draw it "
+                    "by hand, or leave it out if there's no cavity.")
         return msg
 
     def set_smooth(self, on: bool) -> None:
@@ -474,10 +490,10 @@ class Session:
         try:
             o = detect_base_apex(self.frame("ED", reorder=False))
         except (OrientationUncertain, ValueError) as e:
-            return f"Could not tell base from apex automatically ({e}). Set the order by hand."
+            return f"Couldn't tell base from apex ({e}). Set the order by hand."
         nz = self.image.shape[2]
         self.order = list(range(nz)) if o.base_end == "first" else list(range(nz - 1, -1, -1))
-        return f"Ordered base to apex automatically (basal third {o.thirds_ratio:.2f}x the apical)."
+        return f"Ordered base to apex (basal third {o.thirds_ratio:.2f}× the apical)."
 
     def order_warnings(self) -> list[str]:
         """Checks on the user's order. Warnings only: the user decides."""
@@ -490,12 +506,12 @@ class Session:
             k = max(1, len(labeled) // 3)
             base, apex = np.mean(labeled[:k]), np.mean(labeled[-k:])
             if apex > 1.25 * base:
-                out.append("The apex end has a larger blood pool than the base end. The order may be reversed.")
+                out.append("The apex end has a larger blood pool than the base. The order may be reversed.")
         if self.slice_positions_mm is not None and len(active) > 2:
             pos = [self.slice_positions_mm[z] for z in active]
             steps = np.sign(np.diff(pos))
             if not (np.all(steps > 0) or np.all(steps < 0)):
-                out.append("This order does not follow the slice positions recorded by the scanner.")
+                out.append("This order doesn't match the scanner's slice positions.")
         return out
 
     # ---------- results ----------
@@ -524,17 +540,17 @@ class Session:
         drawn = (self.label > 0).reshape(-1, *self.label.shape[2:])
         n_slices = drawn.any(axis=0).sum(axis=0)  # per frame
         if n_slices.max() == 0:
-            return "No contours yet: draw them or run auto-contour first."
+            return "No contours yet: draw them or run Auto LV."
         cand = np.flatnonzero(n_slices >= n_slices.max() - 1)
         vol = blood.sum(axis=(0, 1))
         if len(cand) < 2:
-            return "Only one contoured frame: contour both end-diastole and end-systole."
+            return "Only one contoured frame: contour both ED and ES."
         self.ed_frame = int(cand[np.argmax(vol[cand])])
         self.es_frame = int(cand[np.argmin(vol[cand])])
         self.ed_by_slice.clear()
         self.es_by_slice.clear()
         if not self.separate_slices:
-            return f"End-diastole = frame {self.ed_frame}, end-systole = frame {self.es_frame}."
+            return f"ED = frame {self.ed_frame}, ES = frame {self.es_frame}."
         # separately acquired slices: each slice's own largest / smallest blood pool
         area = blood.sum(axis=0)  # (slice, frame)
         moved = 0
@@ -545,8 +561,8 @@ class Session:
             self.set_phase_frame("ED", int(tz[np.argmax(area[z, tz])]), z)
             self.set_phase_frame("ES", int(tz[np.argmin(area[z, tz])]), z)
             moved += z in self.ed_by_slice or z in self.es_by_slice
-        return (f"ED/ES chosen per slice (separate cines); most slices: ED = frame {self.ed_frame}, "
-                f"ES = frame {self.es_frame}; {moved} slice(s) differ.")
+        return (f"ED/ES set per slice: mostly ED = frame {self.ed_frame}, ES = frame {self.es_frame}; "
+                f"{moved} slice(s) differ.")
 
     def per_slice(self) -> list[dict]:
         """Segment-style per-slice results, base to apex, for slices with a blood pool at both ED and ES.
@@ -598,9 +614,8 @@ class Session:
         notes = self.order_warnings()
         missing = self.es_not_set()
         if missing:
-            notes.insert(0, f"ES isn't set on slice(s) {', '.join(map(str, missing))}: their ES is the same frame "
-                            f"as ED, so they count as not contracting and EF reads too low. Set ES on each slice "
-                            f"(or untick Per-slice ED/ES to use one ES for all).")
+            notes.insert(0, f"ES isn't set on slice(s) {', '.join(map(str, missing))} (same frame as ED), so EF "
+                            "reads low. Set ES on each, or untick Per-slice ED/ES.")
         ed, es = self.frame("ED"), self.frame("ES")
         if not np.any(ed.label == L.LV_BLOODPOOL) or not np.any(es.label == L.LV_BLOODPOOL):
             raise ValueError("Both end-diastole and end-systole need a drawn blood pool.")

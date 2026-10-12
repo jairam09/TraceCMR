@@ -114,3 +114,22 @@ Every choice that changes a result is written down here, with the reason. Papers
 - [ ] Minimum scar cluster size (mm²).
 - [ ] Endocardial erosion (pixels) to avoid blood-pool contamination.
 - [ ] MVO handling (reported with and without).
+
+
+## Double-check flags (`quality.py`, 2026-10-09)
+
+Four independent checks mark the ED/ES slices to look at first, only on slices still exactly as Auto LV drew them (an edited or hand-drawn outline is the user's and is never flagged) (⚠ in the slice list, reasons on hover, list under the results). They run after every edit.
+
+- **Model unsure:** share of the outline band (2 px either side of the endo and epi borders) where the model's top two class probabilities differ by less than 0.4; flagged at >= 10%. Only while the slice is still exactly the model's outline (label hash stored at Auto LV time).
+- **Image disagrees:** share of the blood pool that `refine.fit_slice` (redraw the endo around the bright blood) would add or remove; flagged at >= 30%. Independent of the model, so it catches confidently wrong outlines.
+- **Anatomy:** LV area differs from both neighbours by more than 1.6x; ES cavity larger than ED on a slice; endo within 0.12 mm of the epi along >= 8% of the wall; mean wall outside 0.3-2.4 mm.
+- **Base/apex:** the end slices after Auto LV (session.autocontour_pairs).
+
+Validation (`scripts/validate_checks.py`): model at the expert's ED and ES frames; a real error = an LV drawn where the expert drew none, whole-LV Dice < 0.80, or blood-pool area off by > 20% (and > 10 px). Thresholds chosen on UCL's 15 validation mice, then frozen and reported on the 25 held-out test mice:
+
+| | slices flagged | real errors caught | flags that were real errors |
+|---|---|---|---|
+| 15 validation mice (tuning) | 44% (104/236) | 93% (43/46) | 41% |
+| 25 test mice (held out) | 40% (147/370) | 91% (50/55) | 34% |
+
+Per check on the test mice: model unsure catches 78% (flags 23%), base/apex 76% (27%), image 42% (16%), anatomy 16% (5%); together 91%. The worst unflagged test slice still overlaps the expert at Dice 0.85. Not covered: slices the model left empty though the expert drew them (18 on the test mice, mostly apex); the apex flag on the last drawn slice points the user there.

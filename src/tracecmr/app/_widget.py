@@ -49,6 +49,9 @@ from .. import labels as L
 from ..viz import WALL_CMAP_NAME, draw_bullseye
 from .curve_editor import CurveEditor, curves_from_labels
 from .session import Session
+from . import _vispy_fixes
+
+_vispy_fixes.apply()  # shapes redraws keep their compiled shader (smooth dot dragging)
 
 
 def _settings() -> QSettings:
@@ -81,7 +84,18 @@ QToolButton:disabled { color: #6B7178; }
 QToolButton[popupMode="1"] { padding-right: 15px; }
 QToolButton::menu-button { border: none; background: transparent; width: 14px; }
 QToolButton::menu-button:hover { background: #3A4048; border-radius: 4px; }
+QToolButton[popupMode="2"] { padding-right: 11px; }
+QToolButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right bottom; right: 1px; bottom: 5px; }
+QFrame#toolsep { background: #3A4048; border: none; }
 """
+
+
+def _tool_separator() -> QFrame:
+    """A thin vertical line between toolbar groups."""
+    sep = QFrame()
+    sep.setObjectName("toolsep")
+    sep.setFixedSize(1, 34)
+    return sep
 
 
 def _icon(name: str, color: str = "#D6D9DD") -> QIcon:
@@ -128,6 +142,124 @@ def _thumbnail(img2d: np.ndarray, lab2d: np.ndarray, size: int = 72) -> QPixmap:
     qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
     return QPixmap.fromImage(qimg).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
                                           Qt.TransformationMode.SmoothTransformation)
+
+
+PANEL_TITLES = {"Mouse": "Scans", "TraceCMR": "Results", "Tools": "Toolbar", "Time": "Time bar"}
+
+
+class _PanelHeader(QWidget):
+    """Slim header for a side panel: its name, and a × that hides it (View → Panels brings it back)."""
+
+    def __init__(self, dock, title: str):
+        super().__init__(dock)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 4, 4, 2)
+        lay.setSpacing(4)
+        lbl = QLabel(title.upper())
+        lbl.setStyleSheet("color: #7D8793; font-size: 10px; font-weight: 600; letter-spacing: 0.8px;")
+        lay.addWidget(lbl)
+        lay.addStretch(1)
+        btn = QToolButton(self)
+        btn.setText("✕")
+        btn.setAutoRaise(True)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(f"Hide the {title} panel. The {title} button (top right) brings it back.")
+        btn.setStyleSheet("QToolButton { color: #7D8793; border: none; padding: 0 4px; font-size: 11px; }"
+                          "QToolButton:hover { color: #E6E8EB; }")
+        btn.clicked.connect(dock.close)
+        lay.addWidget(btn)
+        self.close_btn = btn
+
+
+def setup_dock(dock, header: bool = True) -> None:
+    """Make a napari dock behave like a panel in a normal desktop app: stays where it is (no tearing off), named
+    plainly ("Scans", "Results", ...) so it can be ticked on and off in the View menu, and, with `header`,
+    a slim header with a × to hide it. Hiding never destroys the panel, so it always comes back intact."""
+    from qtpy.QtWidgets import QDockWidget
+
+    if dock is None:
+        return
+    try:  # napari rebuilds its own title strip whenever a panel moves; stop that for this one
+        dock.dockLocationChanged.disconnect(dock._set_title_orientation)
+    except (AttributeError, TypeError, RuntimeError):
+        pass
+    title = PANEL_TITLES.get(dock.objectName(), dock.objectName())
+    dock.setWindowTitle(title)
+    dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)  # close = hide; no floating
+    dock.setTitleBarWidget(_PanelHeader(dock, title) if header else QWidget(dock))
+    dock._tracecmr_panel = title
+
+
+class SmoothCanvas(FigureCanvasQTAgg):
+    """A matplotlib canvas that keeps panel resizing smooth.
+
+    A normal canvas re-renders its whole figure on every pixel of a drag (the bullseyes even rebuild), which made
+    dragging a panel edge lag by a fifth of a second per step. This one shows a scaled snapshot while the size is
+    changing and renders crisply once resizing pauses for `delay_ms`.
+    """
+
+    def __init__(self, figure, delay_ms: int = 120):
+        super().__init__(figure)
+        self._pending = None
+        self._snapshot = None
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._apply_resize)
+        self._delay = delay_ms
+
+    def _take_snapshot(self):
+        try:
+            buf = np.asarray(self.buffer_rgba())
+            h, w = buf.shape[:2]
+            if w < 2 or h < 2:
+                return None
+            img = QImage(buf.tobytes(), w, h, 4 * w, QImage.Format.Format_RGBA8888)
+            return QPixmap.fromImage(img.copy())
+        except Exception:  # nothing drawn yet
+            return None
+
+    def _background(self) -> QColor:
+        from matplotlib.colors import to_hex
+
+        return QColor(to_hex(self.figure.get_facecolor()))
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt name)
+        if not self.isVisible() or self._delay <= 0:
+            return super().resizeEvent(event)
+        if self._pending is None:
+            self._snapshot = self._take_snapshot()
+        from qtpy.QtGui import QResizeEvent
+
+        self._pending = QResizeEvent(event.size(), event.oldSize() if self._pending is None
+                                     else self._pending.oldSize())
+        self._timer.start(self._delay)
+        self.update()
+
+    def _apply_resize(self):
+        ev, self._pending = self._pending, None
+        self._snapshot = None
+        if ev is not None:
+            super().resizeEvent(ev)
+            self.update()
+
+    def paintEvent(self, event):  # noqa: N802
+        if self._pending is not None:
+            p = QPainter(self)
+            if self._snapshot is not None:  # the last picture, scaled evenly (never stretched) and centred
+                p.fillRect(self.rect(), self._background())
+                p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                snap = self._snapshot.size()
+                k = min(self.width() / max(snap.width(), 1), self.height() / max(snap.height(), 1))
+                w, h = snap.width() * k, snap.height() * k
+                from qtpy.QtCore import QRectF
+
+                p.drawPixmap(QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h), self._snapshot,
+                             QRectF(self._snapshot.rect()))
+            else:  # nothing rendered yet: the figure's background, never a blank (white) widget
+                p.fillRect(self.rect(), self._background())
+            p.end()
+            return
+        super().paintEvent(event)
 
 
 class _Track(QWidget):
@@ -280,7 +412,7 @@ class SeriesPanel(QWidget):
         row.addWidget(cap)
         row.addStretch(1)
         self.btn_root = QPushButton("Data folder…")
-        self.btn_root.setToolTip("Pick the folder that holds your mice (one folder or .h5 file per mouse)")
+        self.btn_root.setToolTip("Choose the folder that holds your mice (one folder or .h5 file each).")
         row.addWidget(self.btn_root)
         lay.addLayout(row)
         self.mice = QListWidget()
@@ -306,10 +438,10 @@ class SeriesPanel(QWidget):
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         lay.addWidget(self.list, 1)
         self.btn_combine = QPushButton("Combine selected into one stack")
-        self.btn_combine.setToolTip("For scans saved as one cine per slice: Ctrl-click the slices, then combine")
+        self.btn_combine.setToolTip("For one cine per slice: Ctrl-click the slices, then Combine.")
         lay.addWidget(self.btn_combine)
         self.btn_combine.setVisible(False)  # shown when there are separate single-slice series to combine
-        self.lbl = QLabel("Open a mouse (toolbar, top left) to begin.")
+        self.lbl = QLabel("Open a scan to begin.")
         self.lbl.setWordWrap(True)
         self.lbl.setStyleSheet(NOTE_STYLE)
         lay.addWidget(self.lbl)
@@ -325,9 +457,8 @@ class SeriesPanel(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Folder that holds your mice", str(cur))
         if d:
             if self.owner._overlap(d, self.owner.contours_dir()):
-                self.lbl_root.setText(f"⚠ Not changed: the raw scans folder can't contain (or be inside) the "
-                                      f"results folder {self.owner.contours_dir()}. Pick another folder or move "
-                                      f"the results folder in Settings.")
+                self.lbl_root.setText(f"⚠ Not changed: the raw scans and results folders ({self.owner.contours_dir()}) "
+                                      "must be separate. Pick another folder, or move the results folder in Settings.")
                 return
             _settings().setValue("folders/data", d)
             self.fill_mice(d)
@@ -339,7 +470,7 @@ class SeriesPanel(QWidget):
         root = root or _settings().value("folders/data")
         self.mice.clear()
         if not root or not Path(root).is_dir():
-            self.lbl_root.setText("Pick a data folder to list your mice here.")
+            self.lbl_root.setText("Choose a data folder to list your mice.")
             return
         root = Path(root)
         res = self.owner.contours_dir()
@@ -403,7 +534,7 @@ class SeriesPanel(QWidget):
             self.list.setCurrentRow(rows.index(current))
         self.list.blockSignals(False)
         self.lbl.setText(f"{len(rows)} series. Click one to work on it." if study
-                         else "Open a mouse (toolbar, top left) to begin.")
+                         else "Open a scan to begin.")
         # combining only makes sense for separate single-slice series
         self.btn_combine.setVisible(sum(1 for i in rows if study[i].n_slices == 1) > 1)
         self._fit_lists()
@@ -435,10 +566,90 @@ class SeriesPanel(QWidget):
 
 
 
+TABBAR_STYLE = """
+QFrame#tabbar { background: #1E2227; border: 1px solid #3A4048; border-radius: 9px; }
+QPushButton { background: transparent; color: #9AA1A9; border: 1px solid transparent; border-radius: 7px;
+              padding: 5px 0px; font-size: 12px; font-weight: 600; }
+QPushButton:hover { color: #E4E7EB; background: #282D33; }
+QPushButton:checked { background: #3A414B; color: #F1F2F4; border: 1px solid #4A525D; }
+"""
+
+TAB_INFO = {  # hover card text for each Results tab
+    "function": "Volumes, EF, mass, volume curve and per-slice table.",
+    "wall": "Wall thickness and thickening bullseyes; wall lines on the image.",
+    "regions": "Regions of interest: area, signal, CNR and SNR.",
+}
+
+
+class ResultsTabs:
+    """The Results panel's tabs, one per kind of analysis, as a segmented control above the pages. Each page
+    scrolls on its own. Ctrl+1, Ctrl+2, Ctrl+3 switch tabs; the Wall and ROI tools open their own tab."""
+
+    def __init__(self, panel):
+        from qtpy.QtWidgets import QButtonGroup
+
+        self.panel = panel
+        self.bar = QWidget()
+        wrap = QHBoxLayout(self.bar)
+        wrap.setContentsMargins(9, 2, 9, 0)
+        frame = QFrame()
+        frame.setObjectName("tabbar")
+        frame.setStyleSheet(TABBAR_STYLE)
+        self._row = QHBoxLayout(frame)
+        self._row.setContentsMargins(3, 3, 3, 3)
+        self._row.setSpacing(2)
+        wrap.addWidget(frame)
+        self.group = QButtonGroup(frame)
+        self.group.setExclusive(True)
+        self.index: dict[str, int] = {}
+        self.buttons: dict[str, QPushButton] = {}
+        self.scrolls: dict[str, QScrollArea] = {}
+
+    def page(self, key: str, title: str) -> QVBoxLayout:
+        """Add a tab; returns the layout to put its content in."""
+        from .hints import set_hint
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(9, 6, 9, 9)
+        lay.setSpacing(8)
+        scroll.setWidget(body)
+        idx = self.panel.results_stack.addWidget(scroll)
+        btn = QPushButton(title)
+        btn.setCheckable(True)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_hint(btn, title, TAB_INFO.get(key, ""), ["Ctrl", str(idx + 1)])
+        self.group.addButton(btn, idx)
+        self._row.addWidget(btn, 1)
+        btn.clicked.connect(lambda _=False, k=key: self.show(k))
+        self.index[key], self.buttons[key], self.scrolls[key] = idx, btn, scroll
+        if idx == 0:
+            btn.setChecked(True)
+        return lay
+
+    def current(self) -> str:
+        i = self.panel.results_stack.currentIndex()
+        return next((k for k, v in self.index.items() if v == i), "")
+
+    def show(self, key: str) -> None:
+        if key not in self.index:
+            return
+        changed = self.current() != key
+        self.panel.results_stack.setCurrentIndex(self.index[key])
+        self.buttons[key].setChecked(True)
+        if changed:
+            self.panel._results_tab_changed(key)
+
+
 GROW_STEP_PX = 0.5  # Grow / Shrink: how far one press moves the contour, in image pixels
 
 class TraceCMRWidget(QWidget):
-    """Dock widget: Open, Frames, Slice order, Compute, Results."""
+    """Dock widget: Open, Frames, Slice order, Results (recomputed after every edit)."""
 
     def __init__(self, napari_viewer, parent=None):
         super().__init__(parent)
@@ -463,59 +674,70 @@ class TraceCMRWidget(QWidget):
             b.setAutoRaise(True)
             return b
 
-        self.btn_dcm = tool("Open mouse", "mdi6.folder-open-outline",
-                            "Open the folder for one mouse (the folder that holds all its slice series)")
-        self.btn_ucl = tool("UCL file", "mdi6.file-plus-outline", "Add one or more UCL .h5 files")
+        self.btn_dcm = tool("Open scan", "mdi6.folder-open-outline",
+                            "Open one mouse's folder (all its slice series).")
+        self.btn_ucl = tool("UCL file", "mdi6.file-plus-outline", "Add UCL .h5 files.")
         self.btn_save = tool("Save", "mdi6.content-save-outline",
-                             "Save this mouse's contours and choices to your contours folder (Ctrl+S). They load "
-                             "again automatically when you reopen the mouse.")
+                             "Save this mouse's contours and choices (Ctrl+S). They reload when you reopen it.")
         self.btn_auto = tool("Auto LV", "mdi6.auto-fix",
-                             "Contour the LV (red + blue) on every slice at the frame you are viewing (at ED or ES: "
-                             "each slice's own ED or ES). About a second.")
+                             "Contour the LV on every slice at this frame (about 1 s).")
         self.btn_endo = tool("Endo", "mdi6.circle-outline",
-                             "Edit the endocardium (red): only its interpolation points show; Smooth and Clear act on it", True)
+                             "Edit the endocardium (red).", True)
         self.btn_epi = tool("Epi", "mdi6.circle-outline",
-                            "Edit the epicardium (light blue): only its interpolation points show; Smooth and Clear act on it", True)
+                            "Edit the epicardium (light blue).", True)
         self.btn_rv = tool("RV", "mdi6.circle-outline",
-                           "Edit the right ventricle (yellow): only its interpolation points show; Smooth and Clear act on it", True)
+                           "Edit the right ventricle (yellow).", True)
         self.btn_endo.setIcon(_icon("mdi6.circle-outline", "#D71A1C"))
         self.btn_epi.setIcon(_icon("mdi6.circle-outline", "#4FC3F7"))
         self.btn_rv.setIcon(_icon("mdi6.circle-outline", "#FFD600"))
         self.btn_endo.setChecked(True)
-        self.btn_smooth = tool("Smooth", "mdi6.vector-curve", "Smooth the selected contour (Endo / Epi / RV) on this "
-                               "slice and hide its interpolation points")
+        self.btn_smooth = tool("Smooth", "mdi6.vector-curve", "Smooth the selected contour on this slice (S).")
         self.btn_snap = tool("Snap", "mdi6.magnet",
-                             "Grow this slice's endocardium into bright blood the model left out (stops at muscle)")
+                             "Grow the endocardium into bright blood the model missed (stops at muscle).")
         self.btn_fit = tool("Fit", "mdi6.target",
-                            "Redraw this slice's endocardium around the bright blood in the image: adds bright "
-                            "blood it missed and gives dark muscle back to the wall (good at end-systole). Undo reverts.")
+                            "Redraw the endocardium around the bright blood: adds missed blood, returns dark "
+                            "muscle to the wall. Best at ES.")
         self.btn_shrink = tool("Shrink", "mdi6.arrow-collapse-all",
-                               "Pull the selected contour (Endo / Epi / RV) in by half a pixel all the way round "
-                               "on this slice (key: [ ). Undo reverts.")
+                               "Shrink the selected contour by half a pixel ( [ ).")
         self.btn_grow = tool("Grow", "mdi6.arrow-expand-all",
-                             "Push the selected contour (Endo / Epi / RV) out by half a pixel all the way round "
-                             "on this slice (key: ] ). Good for an endocardium the model drew too small. "
-                             "The endo never crosses the epi.")
-        self.btn_points = tool("Points", "mdi6.dots-circle", "Show this slice's interpolation points again after Smooth, to adjust them")
+                             "Grow the selected contour by half a pixel ( ] ). The endo never crosses the epi.")
+        self.btn_points = tool("Points", "mdi6.dots-circle", "Show or hide the selected contour's points (P).", True)
+        self.btn_points.setChecked(True)
         self.btn_clear = tool("Clear", "mdi6.trash-can-outline",
-                              "Delete the selected contour (Endo / Epi / RV) on this slice and frame (Undo brings it back)")
+                              "Delete the selected contour on this slice and frame (Del). Undo restores it.")
         self.btn_undo = tool("Undo", "mdi6.undo", "Undo the last edit (Ctrl+Z)")
+        self.btn_redo = tool("Redo", "mdi6.redo", "Redo the last undone edit (Ctrl+Y)")
         self.btn_brush = tool("Brush", "mdi6.brush-outline", "Paint pixels instead of editing curves", True)
-        self.btn_zoom_out = tool("Zoom −", "mdi6.magnify-minus-outline", "Zoom out (key: -)")
-        self.btn_zoom_in = tool("Zoom +", "mdi6.magnify-plus-outline", "Zoom in (key: =)")
-        self.btn_zoom_fit = tool("Center", "mdi6.image-filter-center-focus", "Center and zoom on the heart (key: F)")
+        self.btn_zoom_out = tool("Zoom −", "mdi6.magnify-minus-outline", "Zoom out (key: −)")
+        self.btn_zoom_in = tool("Zoom +", "mdi6.magnify-plus-outline", "Zoom in (key: +)")
+        self.btn_zoom_fit = tool("Center", "mdi6.image-filter-center-focus", "Center and zoom on the heart (F).")
         self.btn_raw = tool("Raw", "mdi6.eye-off-outline",
-                            "Hide the contours to see the raw image (key: H). Your contours are kept.", True)
+                            "Hide the contours to see the raw image (H).", True)
         self.btn_pan = tool("Pan", "mdi6.hand-back-right-outline",
-                            "Move the image: while on, left-drag pans and nothing is edited (key: Space toggles). "
-                            "Right-drag pans anytime.", True)
+                            "Left-drag pans instead of editing (Space). Right-drag always pans.", True)
         self.btn_wall = tool("Wall", "mdi6.ruler",
-                             "Show the wall on this slice as lines from endo to epi (perpendicular to the wall). "
-                             "Arrow: choose Thickness (blue thin → red thick, as the bullseye) or Thickening ED → ES (green 40%+ = healthy, "
-                             "yellow about 20% or less, red thins). Key: W", True)
+                             "Wall lines on this slice, endo to epi (W). Arrow: thickness or thickening, septum.", True)
         self.btn_contrast = tool("Contrast", "mdi6.brightness-6",
-                                 "Brightness and contrast of the image (also: Ctrl + drag the image)")
+                                 "Brightness and contrast (or Ctrl + drag the image).")
+        self._checks = {}  # double-check flags (quality.py), filled by _run_checks
         self.btn_settings = tool("Settings", "mdi6.cog-outline", "Model, auto-contour, editing and folder options")
+        # show / hide the side panels; Focus hides both so the scan gets the whole window (Segment style)
+        self.btn_left = tool("Scans", "mdi6.dock-left", "Show or hide the Scans panel.", True)
+        self.btn_right = tool("Results", "mdi6.dock-right", "Show or hide the Results panel.", True)
+        self.btn_focus = tool("Focus", "mdi6.fullscreen",
+                              "Hide both side panels so the image fills the window (Ctrl+Shift+F).", True)
+        for b in (self.btn_left, self.btn_right):
+            b.setChecked(True)
+        # dropdowns that gather related tools, so the toolbar shows one button per job
+        self.btn_refine = tool("Refine", "mdi6.tune-variant",
+                               "Snap, fit, grow ( ] ) or shrink ( [ ) the selected contour.")
+        self.btn_view = tool("View", "mdi6.eye-outline",
+                             "Hide contours (H), smooth image (G), contrast, zoom.")
+        self.btn_help = tool("Help", "mdi6.help-circle-outline", "Keyboard shortcuts (?) and the tour")
+        self.btn_roi = tool("ROI", "mdi6.vector-rectangle",
+                            "Measure area and signal in a drawn region; compare regions (R). Arrow: circle or "
+                            "freehand.", True)
+        self.smooth_image = str(_settings().value("view/smooth_image", False)).lower() in ("true", "1")
 
         # time bar controls
         self.lbl_frame = QLabel("Frame –")
@@ -530,8 +752,8 @@ class TraceCMRWidget(QWidget):
         self.btn_auto_frames = QPushButton("Detect")
         self.btn_auto_frames.setToolTip("Pick ED/ES from the contours (needs several contoured frames)")
         self.chk_per_slice = QCheckBox("Per-slice ED/ES")
-        self.chk_per_slice.setToolTip("On: ED/ES set on the time bar apply to the slice being viewed (Segment style, "
-                                      "one cine per slice). Off: one ED/ES for the whole stack.")
+        self.chk_per_slice.setToolTip("On: ED/ES apply to the slice in view (one cine per slice). Off: one "
+                                      "ED/ES for the whole stack.")
         self.btn_show_ed, self.btn_show_es = QPushButton("Show", self), QPushButton("Show", self)  # for scripts
         self.btn_show_ed.hide()
         self.btn_show_es.hide()
@@ -554,8 +776,8 @@ class TraceCMRWidget(QWidget):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
         self.list.setColumnWidth(1, 34)
         self.list.setColumnWidth(2, 34)
-        self.list.setToolTip("Drag to reorder base → apex. Untick ED / ES to leave a slice out of that phase. "
-                             "Orange notes: please check that slice.")
+        self.list.setToolTip("Drag to order base → apex. Untick ED / ES to leave a slice out. Orange note: "
+                             "check that slice.")
         self.btn_suggest = QPushButton("Suggest")
         self.btn_suggest.setToolTip("Re-apply the suggested slice choices")
         self.btn_flip = QPushButton("Flip")
@@ -567,7 +789,7 @@ class TraceCMRWidget(QWidget):
         # settings dialog contents
         self.cmb_model = QComboBox()
         self.btn_model_dir = QPushButton("Model folder…")
-        self.btn_model_dir.setToolTip("Point TraceCMR at the folder holding the selected model (remembered)")
+        self.btn_model_dir.setToolTip("Folder with the selected model (remembered).")
         self.chk_all_frames = QCheckBox("Contour every frame (slow; lets Detect find ED/ES)")
 
         self.chk_raw = QCheckBox("Open UCL files as raw cines (hide the expert contours)")
@@ -602,17 +824,17 @@ class TraceCMRWidget(QWidget):
         row.addWidget(QLabel("New contours are"))
         row.addWidget(self.cmb_add, 1)
         gl.addLayout(row)
-        help_ = QLabel("Drag an interpolation point to move it · click the line to add one · right-click a point to delete it · "
-                       "Pan button (or right-drag) to move the image · scroll to zoom · Ctrl+Z undoes any edit. No contour on a "
-                       "slice? Click points around it, right-click to close.")
+        help_ = QLabel("Drag a point to move it · click the line to add one · right-click a point to delete it "
+                       "· right-drag pans · scroll zooms · Ctrl+Z undoes. No contour? Click points around it, "
+                       "right-click to close.")
         help_.setWordWrap(True)
         help_.setStyleSheet(NOTE_STYLE)
         gl.addWidget(help_)
         sl.addWidget(g)
         g = QGroupBox("Folders")
         gl = QVBoxLayout(g)
-        note = QLabel("Raw scans are only ever read, never changed. Everything TraceCMR makes (contours, results "
-                      "tables, images) goes to the results folder, one sub-folder per mouse. Keep the two apart.")
+        note = QLabel("Raw scans are only read, never changed. Contours, tables and images go to the results "
+                      "folder, one sub-folder per mouse.")
         note.setWordWrap(True)
         note.setStyleSheet(NOTE_STYLE)
         gl.addWidget(note)
@@ -635,9 +857,8 @@ class TraceCMRWidget(QWidget):
         g = QGroupBox("Wall thickness")
         gl = QVBoxLayout(g)
         self.chk_mirror = QCheckBox("Mirror segment numbering (the scan is seen from the base, not the apex)")
-        self.chk_mirror.setToolTip("Segments are placed from where the RV meets the LV (the septum) and numbered in the "
-                                   "AHA order. That assumes the slices are seen from the apex; if anterior and inferior "
-                                   "come out swapped, tick this.")
+        self.chk_mirror.setToolTip("Segments start at the septum (RV–LV junction) in AHA order, seen from the "
+                                   "apex. Tick this if anterior and inferior come out swapped.")
         self.chk_mirror.setChecked(str(_settings().value("wall/mirror", False)).lower() in ("true", "1"))
         self.chk_mirror.toggled.connect(self._mirror_toggled)
         gl.addWidget(self.chk_mirror)
@@ -647,18 +868,18 @@ class TraceCMRWidget(QWidget):
         sl.addWidget(close)
 
         # ---------------- right panel: scan, status, results ----------------
+        # Fixed header (scan, status), then tabs, one per analysis (Function, Wall, Regions), each page
+        # scrolling on its own, and the export buttons fixed at the bottom.
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        body = QWidget()
-        self.main = QVBoxLayout(body)
+        outer.setSpacing(6)
+        head = QWidget()
+        self.main = QVBoxLayout(head)  # the header; the pages are built below
+        self.main.setContentsMargins(9, 9, 9, 0)
         self.main.setSpacing(8)
-        scroll.setWidget(body)
-        outer.addWidget(scroll)
+        outer.addWidget(head)
 
-        self.lbl_scan = QLabel("No scan open. Click <b>Open mouse</b> at the top left.")
+        self.lbl_scan = QLabel("No scan open. Click <b>Open scan</b> (top left).")
         self.lbl_scan.setWordWrap(True)
         self.main.addWidget(self.lbl_scan)
         self.prog = QProgressBar()
@@ -673,12 +894,24 @@ class TraceCMRWidget(QWidget):
         self.btn_compute.setIcon(_icon("mdi6.calculator-variant-outline"))
         self.btn_compute.setMinimumHeight(34)
         self.btn_compute.setStyleSheet("font-weight: 600;")
-        self.main.addWidget(self.btn_compute)
+        # Results recompute by themselves a moment after every edit, so the button is not shown; it is kept
+        # (hidden) for scripts and older tests.
+        self.btn_compute.setVisible(False)
         self.lbl_warn = QLabel("")
         self.lbl_warn.setWordWrap(True)
         self.lbl_warn.setStyleSheet(WARN_STYLE)
         self.lbl_warn.setVisible(False)
         self.main.addWidget(self.lbl_warn)
+
+        from qtpy.QtWidgets import QStackedWidget
+
+        self.results_tabs = ResultsTabs(self)
+        outer.addWidget(self.results_tabs.bar)
+        self.results_stack = QStackedWidget()
+        outer.addWidget(self.results_stack, 1)
+        page_function = self.results_tabs.page("function", "Function")
+        page_wall = self.results_tabs.page("wall", "Wall")
+        page_regions = self.results_tabs.page("regions", "Regions")
 
         box = QGroupBox("Left ventricle")
         lay = QVBoxLayout(box)
@@ -704,7 +937,7 @@ class TraceCMRWidget(QWidget):
             self.res_labels[key] = val
         lay.addLayout(self.grid_res)
         self.vfig = Figure(figsize=(4.2, 1.4), facecolor="none")
-        self.vcanvas = FigureCanvasQTAgg(self.vfig)
+        self.vcanvas = SmoothCanvas(self.vfig)
         self.vcanvas.setMinimumHeight(110)
         self.vcanvas.setStyleSheet("background: transparent;")
         cap = QLabel("Blood-pool volume over the cycle")
@@ -712,7 +945,7 @@ class TraceCMRWidget(QWidget):
         self.lbl_vcurve = cap
         lay.addWidget(cap)
         lay.addWidget(self.vcanvas)
-        self.main.addWidget(box)
+        page_function.addWidget(box)
 
         self.box_rv = QGroupBox("Right ventricle")
         lay = QGridLayout(self.box_rv)
@@ -734,24 +967,39 @@ class TraceCMRWidget(QWidget):
             lay.addWidget(tile, i // 2, i % 2)
             self.rv_labels[key] = val
         self.box_rv.setVisible(False)
-        self.main.addWidget(self.box_rv)
+        page_function.addWidget(self.box_rv)
 
-        self.box_slices = QGroupBox("Per slice")
+        self.box_slices = QGroupBox("Per slice  (volumes µL · EF % · mass mg)")
         lay = QVBoxLayout(self.box_slices)
         self.tbl_slices = QTableWidget(0, 5)
-        self.tbl_slices.setHorizontalHeaderLabels(["Slice", "EDV µL", "ESV µL", "EF %", "Mass mg"])
+        # short headers so all five columns fit even a narrow side panel; the units are in the box title
+        self.tbl_slices.setHorizontalHeaderLabels(["Slice", "EDV", "ESV", "EF", "Mass"])
+        for c, tip in enumerate(["Slice number, base to apex",
+                                 "End-diastolic volume (µL)",
+                                 "End-systolic volume (µL)",
+                                 "Ejection fraction (%)",
+                                 "Myocardial mass at end-diastole (milligrams)"]):
+            self.tbl_slices.horizontalHeaderItem(c).setToolTip(tip)
+        self.tbl_slices.horizontalHeaderItem(0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tbl_slices.verticalHeader().setVisible(False)
         self.tbl_slices.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_slices.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl_slices.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_slices.cellClicked.connect(self._slice_row_clicked)
-        self.tbl_slices.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tbl_slices.setToolTip("Each slice with both ED and ES contoured. Click a row to go to that slice. Grey "
-                                   "rows are left out; orange = ES not set on that slice yet; the bottom row is the "
-                                   "whole heart from the selected slices.")
+        hdr_s = self.tbl_slices.horizontalHeader()
+        # slice numbers as narrow as they can be; the four number columns share the rest equally
+        hdr_s.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        hdr_s.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr_s.setMinimumSectionSize(36)
+        self.tbl_slices.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        hdr_s.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.tbl_slices.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.tbl_slices.setStyleSheet("QTableWidget::item { padding: 0 6px; } QHeaderView::section { padding: 2px 6px; }")
+        self.tbl_slices.setToolTip("Slices with ED and ES contoured. Click a row to view it. Grey = left out; "
+                                   "orange = ES not set; bottom row = whole heart.")
         lay.addWidget(self.tbl_slices)
         self.box_slices.setVisible(False)
-        self.main.addWidget(self.box_slices)
+        page_function.addWidget(self.box_slices)
         self._table_timer = QTimer(self)
         self._table_timer.setSingleShot(True)
         self._table_timer.timeout.connect(self._refresh_slice_table)
@@ -759,7 +1007,7 @@ class TraceCMRWidget(QWidget):
         box = QGroupBox("Wall")
         lay = QVBoxLayout(box)
         self.fig = Figure(figsize=(4.4, 2.3), facecolor="none")
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas = SmoothCanvas(self.fig)
         self.canvas.setMinimumHeight(230)
         self.canvas.mpl_connect("resize_event", self._draw_bullseyes)
         self.canvas.setStyleSheet("background: transparent;")
@@ -767,39 +1015,67 @@ class TraceCMRWidget(QWidget):
         self.lbl_notes = QLabel("")
         self.lbl_notes.setWordWrap(True)
         lay.addWidget(self.lbl_notes)
-        self.main.addWidget(box)
-        self.btn_export = QPushButton("  Export CSV…")
+        page_wall.addWidget(box)
+        page_wall.addWidget(self._wall_controls())
+        from .roi import RoiTool
+
+        self.roi = RoiTool(self)
+        from .autosave import AutoSave
+
+        self.autosave = AutoSave(self)
+        page_regions.addWidget(self.roi.box)
+        for page in (page_function, page_wall, page_regions):
+            page.addStretch(1)
+        self.btn_export = QPushButton("  Export all results")
         self.btn_export.setIcon(_icon("mdi6.file-export-outline"))
+        self.btn_export.setToolTip("Save, then write this mouse's workbook, bullseyes, slice images and "
+                                   "study-table row to its results folder.")
         row = QHBoxLayout()
         row.addWidget(self.btn_export)
         self.btn_export_img = QPushButton("  Export images")
         self.btn_export_img.setIcon(_icon("mdi6.image-multiple-outline"))
-        self.btn_export_img.setToolTip("Write raw | contoured PNGs of every contoured slice at ED and ES, plus a "
-                                       "montage, into this mouse's results folder. Save does this too.")
+        self.btn_export_img.setToolTip("Save raw and contoured PNGs of every contoured slice at ED and ES, "
+                                       "plus a montage.")
         row.addWidget(self.btn_export_img)
-        self.main.addLayout(row)
-        self.main.addStretch(1)
+        foot = QWidget()
+        foot.setLayout(row)
+        row.setContentsMargins(9, 0, 9, 9)
+        outer.addWidget(foot)
 
         # ---------------- toolbar ----------------
         self.toolbar = QWidget()
         tb = QHBoxLayout(self.toolbar)
         tb.setContentsMargins(6, 2, 6, 2)
         tb.setSpacing(2)
-        groups = [[self.btn_dcm, self.btn_ucl, self.btn_save],
-                  [self.btn_auto],
-                  [self.btn_endo, self.btn_epi, self.btn_rv, self.btn_smooth, self.btn_snap, self.btn_fit, self.btn_shrink, self.btn_grow, self.btn_points,
-                   self.btn_clear, self.btn_undo, self.btn_brush],
-                  [self.btn_pan, self.btn_raw, self.btn_wall, self.btn_contrast, self.btn_zoom_out, self.btn_zoom_in, self.btn_zoom_fit]]
+        # one button per job, grouped left to right in the order of the work: file, contour, edit, view, analyse.
+        # The tools folded into dropdowns (UCL file, Snap, Fit, Grow, Shrink, Raw, Contrast, Zoom) stay as
+        # buttons behind the scenes, so their keys, tooltips and tests are unchanged.
+        groups = [[self.btn_dcm, self.btn_save],
+                  [self.btn_auto, self.btn_endo, self.btn_epi, self.btn_rv],
+                  [self.btn_smooth, self.btn_refine, self.btn_points, self.btn_brush, self.btn_undo, self.btn_redo,
+                   self.btn_clear],
+                  [self.btn_pan, self.btn_zoom_fit, self.btn_view],
+                  [self.btn_wall, self.btn_roi]]
+        self.toolbar_groups = groups
         for k, grp in enumerate(groups):
             if k:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.Shape.VLine)
-                sep.setStyleSheet("color: #4A5058;")
-                tb.addWidget(sep)
+                tb.addSpacing(5)
+                tb.addWidget(_tool_separator())
+                tb.addSpacing(5)
             for b in grp:
                 tb.addWidget(b)
         tb.addStretch(1)
+        for b in (self.btn_left, self.btn_right, self.btn_focus):
+            tb.addWidget(b)
+        tb.addSpacing(5)
+        tb.addWidget(_tool_separator())
+        tb.addSpacing(5)
+        tb.addWidget(self.btn_help)
         tb.addWidget(self.btn_settings)
+        for b in (self.btn_ucl, self.btn_snap, self.btn_fit, self.btn_grow, self.btn_shrink, self.btn_raw,
+                  self.btn_contrast, self.btn_zoom_in, self.btn_zoom_out):
+            b.setParent(self.toolbar)
+            b.hide()
         self.toolbar.setStyleSheet(TOOLBAR_STYLE)
 
         # wiring
@@ -815,6 +1091,7 @@ class TraceCMRWidget(QWidget):
         self.chk_per_slice.toggled.connect(self._per_slice_toggled)
         self.btn_play.clicked.connect(self._toggle_play)
         self.viewer.dims.events.current_step.connect(self._update_frame_label)
+        self.viewer.dims.events.current_step.connect(self._compare_changed)
         self.btn_flip.clicked.connect(self._flip)
         self.btn_auto_order.clicked.connect(self._auto_order)
         self.list.model().rowsInserted.connect(lambda *a: QTimer.singleShot(0, self._order_from_list))
@@ -824,12 +1101,13 @@ class TraceCMRWidget(QWidget):
         self.btn_compute.clicked.connect(self.compute)
         self.btn_auto.clicked.connect(self.autocontour)
         self.btn_smooth.clicked.connect(self._smooth_points)
-        self.btn_points.clicked.connect(self._edit_points)
+        self.btn_points.toggled.connect(self._points_toggled)
         self.btn_snap.clicked.connect(self._snap_slice)
         self.btn_fit.clicked.connect(self._fit_slice)
         self.btn_grow.clicked.connect(lambda: self.grow_contour(GROW_STEP_PX))
         self.btn_shrink.clicked.connect(lambda: self.grow_contour(-GROW_STEP_PX))
         self.btn_undo.clicked.connect(self.undo)
+        self.btn_redo.clicked.connect(self.redo)
         self.btn_clear.clicked.connect(self.clear_slice)
         self.chk_smooth.toggled.connect(self._smooth_toggled)
         self.btn_model_dir.clicked.connect(self._choose_model_dir)
@@ -837,36 +1115,77 @@ class TraceCMRWidget(QWidget):
         self._fill_models()
         self.rb_curves.toggled.connect(self._mode_changed)
         self.cmb_add.currentIndexChanged.connect(self._add_target_changed)
-        self.btn_export.clicked.connect(self._export)
+        self.btn_export.clicked.connect(lambda: self.export_all())
         self.btn_export_img.clicked.connect(lambda: self.export_images())
         self.btn_settings.clicked.connect(lambda: (self.settings.show(), self.settings.raise_()))
         self.btn_save.clicked.connect(lambda: self._save_clicked())
         from qtpy.QtWidgets import QMenu
-        save_menu = QMenu(self.btn_save)
-        save_menu.addAction("Save", lambda: self._save_clicked())
-        save_menu.addAction("Save as…", lambda: self._save_clicked(save_as=True))
-        save_menu.addAction("Open the folder it's saved in", self._open_saved_folder)
+
+        from .menus import ToolMenu
+
+        save_menu = ToolMenu(self.btn_save)
+        save_menu.add("Save", lambda: self._save_clicked(), keys=["Ctrl", "S"], icon="mdi6.content-save-outline")
+        save_menu.add("Save as…", lambda: self._save_clicked(save_as=True), keys=["Ctrl", "Shift", "S"],
+                      icon="mdi6.content-save-edit-outline")
+        save_menu.addSeparator()
+        save_menu.add("Export all results", lambda: self.export_all(), icon="mdi6.file-export-outline",
+                      tooltip="Workbook, images and study-table row")
+        save_menu.add("Open the results folder", self._open_saved_folder, icon="mdi6.folder-outline")
+
         self.btn_save.setMenu(save_menu)
-        from qtpy.QtGui import QActionGroup
+        try:
+            from qtpy.QtGui import QActionGroup
+        except ImportError:  # Qt5
+            from qtpy.QtWidgets import QActionGroup
 
         self.wall_mode = "thickness"
-        wall_menu = QMenu(self.btn_wall)
+        wall_menu = ToolMenu(self.btn_wall)
+        self.act_wall_show = wall_menu.add("Show wall lines", lambda on: self.btn_wall.setChecked(on), keys="W",
+                                           icon="mdi6.ruler", checkable=True)
+        self.btn_wall.toggled.connect(lambda on: self.act_wall_show.isChecked() != on
+                                      and self.act_wall_show.setChecked(on))
+        wall_menu.addSeparator()
         grp = QActionGroup(wall_menu)
         self.act_wall = {}
         for mode, text in (("thickness", "Thickness (mm)"), ("thickening", "Thickening ED → ES (%)")):
-            a = wall_menu.addAction(text)
-            a.setCheckable(True)
-            a.setChecked(mode == self.wall_mode)
-            grp.addAction(a)
-            a.triggered.connect(lambda _=False, m=mode: self.set_wall_mode(m))
-            self.act_wall[mode] = a
+            self.act_wall[mode] = wall_menu.add(text, lambda _=False, m=mode: self.set_wall_mode(m),
+                                                checkable=True, checked=mode == self.wall_mode, group=grp)
         wall_menu.addSeparator()
-        wall_menu.addAction("Set the septum on this slice (then click it)", self.start_set_septum)
-        wall_menu.addAction("Reset the septum on this slice to automatic", lambda: self.reset_septum(all_slices=False))
-        wall_menu.addAction("Reset the septum on all slices to automatic", lambda: self.reset_septum(all_slices=True))
+        wall_menu.add("Set the septum on this slice", self.start_set_septum, icon="mdi6.cursor-default-click-outline",
+                      tooltip="Then click the septum on the image")
+        wall_menu.add("Reset the septum on this slice", lambda: self.reset_septum(all_slices=False),
+                      icon="mdi6.restore")
+        wall_menu.add("Reset the septum on all slices", lambda: self.reset_septum(all_slices=True),
+                      icon="mdi6.restore")
         self.btn_wall.setMenu(wall_menu)
         self.btn_wall.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        roi_menu = ToolMenu(self.btn_roi)
+        roi_grp = QActionGroup(roi_menu)
+        self.act_roi_shape = {
+            "circle": roi_menu.add("Circle", lambda _=False: (self.roi.set_kind("circle"), self.btn_roi.setChecked(True)),
+                                   icon="mdi6.circle-outline", checkable=True, checked=True, group=roi_grp,
+                                   tooltip="Drag from the centre outwards"),
+            "freehand": roi_menu.add("Freehand", lambda _=False: (self.roi.set_kind("freehand"),
+                                                                 self.btn_roi.setChecked(True)),
+                                     icon="mdi6.draw", checkable=True, group=roi_grp,
+                                     tooltip="Hold and drag around the region"),
+            "line": roi_menu.add("Ruler (distance)", lambda _=False: (self.roi.set_kind("line"),
+                                                                    self.btn_roi.setChecked(True)),
+                                 icon="mdi6.ruler", checkable=True, group=roi_grp,
+                                 tooltip="Drag between two points to measure the distance in mm"),
+        }
+        roi_menu.addSeparator()
+        roi_menu.add("Remove the selected region", lambda: self.roi.remove_selected(), keys="Delete",
+                     icon="mdi6.close")
+        roi_menu.add("Clear all regions", lambda: self.roi.clear_all(), icon="mdi6.trash-can-outline")
+        roi_menu.add("Export measurements (CSV)", lambda: self.roi.export_csv(), icon="mdi6.file-delimited-outline")
+        self.btn_roi.setMenu(roi_menu)
+        self.btn_roi.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.btn_roi.toggled.connect(self._roi_toggled)
+        self.btn_wall.toggled.connect(lambda on: on and self.results_tabs.show("wall"))
         self.btn_save.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._build_tool_menus(QMenu)
+        self._set_hints()
         self.lbl_contours_dir.setText(str(self.contours_dir()))
         self.lbl_data_dir.setText(str(_settings().value("folders/data") or "not set"))
         self.btn_endo.clicked.connect(lambda: self.cmb_add.setCurrentIndex(0))
@@ -886,9 +1205,13 @@ class TraceCMRWidget(QWidget):
         self.btn_pan.toggled.connect(self._pan_toggled)
         self._build_contrast_popup()
         self.btn_contrast.clicked.connect(self._show_contrast_popup)
-        for key, fn in (("=", lambda v: self.zoom(1.25)), ("-", lambda v: self.zoom(0.8)),
-                        ("f", lambda v: self.fit_heart()), ("h", lambda v: self.btn_raw.toggle()), ("w", lambda v: self.btn_wall.toggle()), ("Space", lambda v: self.btn_pan.toggle()), ("Control-z", lambda v: self.undo()), ("Escape", lambda v: self.cancel_click()),
+        for key, fn in (("f", lambda v: self.fit_heart()), ("h", lambda v: self.btn_raw.toggle()), ("w", lambda v: self.btn_wall.toggle()), ("Space", lambda v: self.btn_pan.toggle()), ("Control-z", lambda v: self.undo()), ("Control-y", lambda v: self.redo()),
+                        ("Control-e", lambda v: self.show_compare()),
+                        ("Control-Shift-z", lambda v: self.redo()), ("Escape", lambda v: self._escape()),
                         ("]", lambda v: self.grow_contour(GROW_STEP_PX)), ("[", lambda v: self.grow_contour(-GROW_STEP_PX)),
+                        ("g", lambda v: self.set_smooth_image(not self.smooth_image)),
+                        ("q", lambda v: self.cycle_structure()), ("k", lambda v: self._toggle_play()),
+                        ("r", lambda v: self.btn_roi.toggle()),
                         ("Control-s", lambda v: self._save_clicked()),
                         ("Control-Shift-s", lambda v: self._save_clicked(save_as=True)),
                         ("Up", lambda v: self.step_slice(-1)), ("Down", lambda v: self.step_slice(1)),
@@ -897,16 +1220,22 @@ class TraceCMRWidget(QWidget):
                 self.viewer.bind_key(key, fn, overwrite=True)
             except Exception:  # keys are a convenience; the buttons always work
                 pass
+        self._image_shortcuts()
         self._set_enabled(False)
         self.series_panel = SeriesPanel(self)
         self.series_panel.add_slices(self.list, [self.btn_flip, self.btn_auto_order, self.btn_suggest],
                                      self.lbl_order)
         self.series_panel.fill_mice()
+        # Clicking a list or table must not keep the keyboard: letter keys (S, P, Q, H, W…) stay shortcuts instead
+        # of jumping to a row that starts with that letter. Up/Down still step through slices.
+        for view in (self.list, self.series_panel.mice, self.series_panel.list, self.tbl_slices):
+            view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.timebar = TimeBar(self)
+        self.docks = []
         try:
             # the toolbar scrolls sideways when the window is narrower than it, instead of pushing buttons off-screen
             bar = QScrollArea()
-            for b in (self.btn_save, self.btn_wall):  # room for the menu arrow next to the label
+            for b in (self.btn_dcm, self.btn_save, self.btn_wall, self.btn_roi):  # room for the menu arrow
                 b.setMinimumWidth(58)
             self.toolbar.ensurePolished()
             self.toolbar.setMinimumWidth(self.toolbar.sizeHint().width())  # never squeezed into cut-off labels
@@ -918,15 +1247,19 @@ class TraceCMRWidget(QWidget):
             bar.setFixedHeight(self.toolbar.sizeHint().height() + bar.horizontalScrollBar().sizeHint().height() + 2)
             bar.setMinimumWidth(200)
             self.toolbar_scroll = bar
-            self.viewer.window.add_dock_widget(bar, area="top", name="Tools")
-            self.viewer.window.add_dock_widget(self.timebar, area="bottom", name="Time")
+            self.docks = [self.viewer.window.add_dock_widget(bar, area="top", name="Tools"),
+                          self.viewer.window.add_dock_widget(self.timebar, area="bottom", name="Time")]
             left = QScrollArea()
             left.setWidget(self.series_panel)
             left.setWidgetResizable(True)
             left.setFrameShape(QFrame.Shape.NoFrame)
             left.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             left.setMinimumWidth(290)
-            self.viewer.window.add_dock_widget(left, area="left", name="Mouse")
+            self.docks.append(self.viewer.window.add_dock_widget(left, area="left", name="Mouse"))
+            for d in self.docks:
+                setup_dock(d, header=d.objectName() == "Mouse")  # toolbar and time bar: no header
+            QTimer.singleShot(0, self._wire_panel_buttons)  # the Results dock exists once the panel is docked
+            self._scale_with_canvas()
             # Segment-style: the series column owns the left side; napari's layer panels come back with
             # the pixel brush (or from the Window menu)
             self._napari_docks(False)
@@ -953,7 +1286,7 @@ class TraceCMRWidget(QWidget):
         self.open_series(first)
 
     def _open_dicom(self):
-        folder = QFileDialog.getExistingDirectory(self, "Choose the folder for one mouse (it holds all the slice series)")
+        folder = QFileDialog.getExistingDirectory(self, "Choose one mouse's folder (all its slice series)")
         if folder:
             self.open_path(folder)
 
@@ -969,7 +1302,7 @@ class TraceCMRWidget(QWidget):
                 if len(above) > 1:
                     found, folder = above, parent
         if not found:
-            self.series_panel.lbl.setText("No DICOM images found in that folder. Choose the folder for one mouse.")
+            self.series_panel.lbl.setText("No DICOM images found. Choose one mouse's folder.")
             return
         from .study import auto_stacks
 
@@ -1037,8 +1370,8 @@ class TraceCMRWidget(QWidget):
     def set_results_dir(self, d) -> bool:
         data = _settings().value("folders/data")
         if self._overlap(d, data):
-            self.lbl_contours_dir.setText(f"⚠ Not changed: the results folder must be outside the raw scans folder "
-                                          f"({data}). Still {self.contours_dir()}")
+            self.lbl_contours_dir.setText(f"⚠ Not changed: results must be outside the raw scans folder ({data}). "
+                                          f"Still {self.contours_dir()}")
             return False
         _settings().setValue("folders/contours", str(d))
         self.lbl_contours_dir.setText(str(d))
@@ -1144,6 +1477,7 @@ class TraceCMRWidget(QWidget):
         if self.session.source:
             _settings().setValue(f"saved/{self._scan_tag()}", str(path))
         self._last_save = {"file": path, "csv": csv_path, "images": len(imgs), "images_dir": self._images_dir(path)}
+        self.autosave.mark_saved()
         if not quiet:
             self.lbl_auto.setText(f"Saved {path.name} in {path.parent}.")
         self.series_panel.fill_mice()
@@ -1181,10 +1515,10 @@ class TraceCMRWidget(QWidget):
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"Saved {', '.join(parts)}.")
         box.setInformativeText(f"File: {info['file'].name}\nFolder: {info['file'].parent}\n\n"
-                               "Ctrl+S saves to this file from now on (Save as… to change it).")
+                               "Ctrl+S now saves here (Save as… to change).")
         open_btn = box.addButton("Open folder", QMessageBox.ButtonRole.ActionRole)
         box.addButton(QMessageBox.StandardButton.Ok)
-        chk = QCheckBox("Don't show this again (the status line still says where it saved)")
+        chk = QCheckBox("Don't show this again (the status line shows where it saved)")
         box.setCheckBox(chk)
         box.exec()
         if chk.isChecked():
@@ -1260,13 +1594,18 @@ class TraceCMRWidget(QWidget):
         """Show a session in the viewer and fill the panel."""
         self.session = s = session
         s.mirror_segments = self.chk_mirror.isChecked()
-        for name in ("image", "contours"):
+        # Overlays first: removing the image while the outline layers remain shifts the frame/slice position,
+        # the editor redraws for the new position, which shifts it again (an endless loop on some slices)
+        if self.editor is not None:
+            self.editor.detach()  # the old editor stops reacting to clicks and slice changes
+        for name in ("rois", "control points", "curves", "wall thickness", "image", "contours"):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(name)
         dx, dy, dz = s.spacing
         # napari axes: (time, slice, y, x); our arrays are (x, y, slice, time)
         self.viewer.add_image(s.image.transpose(3, 2, 1, 0), name="image", scale=(1, dz, dy, dx),
-                              colormap="gray")
+                              colormap="gray", interpolation2d="cubic" if self.smooth_image else "nearest")
+        self.viewer.layers["image"].events.contrast_limits.connect(self._compare_changed)
         lab = self.viewer.add_labels(s.label.transpose(3, 2, 1, 0), name="contours", scale=(1, dz, dy, dx),
                                      opacity=0.9)
         lab.contour = 1  # outlines, like Segment, rather than filled regions
@@ -1307,6 +1646,7 @@ class TraceCMRWidget(QWidget):
         self.editor.on_edit = lambda: self._table_timer.start(250)
         self.editor.on_window = self.adjust_contrast
         self.editor.pan_mode = self.btn_pan.isChecked()
+        self.editor.show_dots = self.btn_points.isChecked()
         self._rebuild_list()
         self._show_frame(s.ed_frame)
         self.viewer.reset_view()
@@ -1315,6 +1655,9 @@ class TraceCMRWidget(QWidget):
         self._draw_volume_curve()
         self._reset_contrast()
         self._table_timer.start(0)  # results straight away when the mouse already has contours
+        self.roi.session_loaded()  # its saved regions of interest
+        self.autosave.baseline()
+        QTimer.singleShot(250, self._offer_recovery)  # once the window has settled on the new mouse
         if message:
             self.lbl_order.setText(message)
         if not getattr(self, "_testing", False):
@@ -1325,12 +1668,24 @@ class TraceCMRWidget(QWidget):
         scene = getattr(self.viewer, "scene", None)
         return scene.camera if scene is not None and hasattr(scene, "camera") else self.viewer.camera
 
+    def _compare_open(self):
+        c = getattr(self, "_compare", None)
+        return c if c is not None and c.is_open() else None
+
     def zoom(self, factor: float) -> None:
-        """Zoom the image view in (>1) or out (<1) about its centre."""
+        """Zoom the image view in (>1) or out (<1) about its centre (the ED | ES pair while that view is up)."""
+        c = self._compare_open()
+        if c is not None:
+            c.view.zoom_by(factor)
+            return
         self._camera.zoom = self._camera.zoom * factor
 
     def fit_heart(self) -> None:
         """Reset the view, then centre and zoom on the heart if it has contours."""
+        c = self._compare_open()
+        if c is not None:
+            c.view.reset_view()
+            return
         self.viewer.reset_view()
         if self.session is not None:
             self._centre_on_heart(set_slice=False)
@@ -1396,8 +1751,8 @@ class TraceCMRWidget(QWidget):
         self._sync_labels()  # carry edits from whichever mode was active
         self.viewer.layers["contours"].visible = not curves_mode
         if curves_mode:
-            # Slices whose labels haven't changed since the curves were built keep their dots and their
-            # smoothed (dots hidden) state, e.g. when ED/ES is set on another slice.
+            # Slices whose labels haven't changed since the curves were built keep their dots exactly as they
+            # are (e.g. smoothed), e.g. when ED/ES is set on another slice.
             lab, frames = self.session.label, self.session.frames_in_use()
             shown = getattr(self, "_shown_label", None)
             keep = set()
@@ -1413,9 +1768,6 @@ class TraceCMRWidget(QWidget):
                 curves = {k: v for k, v in curves.items() if k[:2] not in slices}
                 curves.update(saved)
             self.editor.show(curves, keep=keep)
-            if saved:
-                self.editor.hidden |= {k for k in self.session.saved_hidden if k in saved}
-                self.editor._refresh_layers()
             self._shown_label, self._shown_frames = np.array(lab, copy=True), set(frames)
             self.editor.set_focus(ADD_TARGETS[self.cmb_add.currentIndex()])
         else:
@@ -1428,6 +1780,422 @@ class TraceCMRWidget(QWidget):
             self.btn_raw.setChecked(False)
             self.btn_raw.blockSignals(False)
 
+    # ---------- side panels and focus ----------
+
+    def _side_docks(self):
+        """(Scans dock, Results dock): the left panel, and the dock holding this panel. None where missing."""
+        from qtpy.QtWidgets import QDockWidget
+
+        def alive(d):
+            try:
+                return d is not None and d.objectName() is not None
+            except RuntimeError:  # deleted with its window
+                return False
+
+        left = next((d for d in getattr(self, "docks", []) if alive(d) and d.objectName() == "Mouse"), None)
+        right, w = None, self.parentWidget()
+        while w is not None and right is None:
+            right = w if isinstance(w, QDockWidget) else None
+            w = w.parentWidget()
+        return left, right
+
+    def _wire_panel_buttons(self, _tries: int = 0) -> None:
+        """Connect the Scans / Results / Focus buttons to the side panels, both ways: a button lights up while its
+        panel shows, whether the panel was hidden with its ×, the View menu or the button."""
+        try:
+            self._wire_panel_buttons_now(_tries)
+        except RuntimeError:  # the window was closed before the panel was docked: nothing to wire
+            pass
+
+    def _wire_panel_buttons_now(self, _tries: int) -> None:
+        left, right = self._side_docks()
+        if right is None and _tries < 20:  # not docked yet: try again shortly (cancelled if this panel goes)
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(lambda: self._wire_panel_buttons(_tries + 1))
+            t.start(50)
+            return
+        if getattr(self, "_panels_wired", False):
+            return
+        self._panels_wired = True
+        for btn, dock in ((self.btn_left, left), (self.btn_right, right)):
+            if dock is None:
+                btn.setEnabled(False)
+                continue
+            btn.setChecked(not dock.isHidden())
+            btn.toggled.connect(lambda on, d=dock: self._show_panel(d, on))
+            dock.toggleViewAction().toggled.connect(lambda on, b=btn: self._panel_changed(b, on))
+        self.btn_focus.toggled.connect(self._focus_toggled)
+        try:
+            from qtpy.QtGui import QKeySequence, QShortcut
+        except ImportError:  # Qt5
+            from qtpy.QtGui import QKeySequence
+            from qtpy.QtWidgets import QShortcut
+        try:
+            win = self.viewer.window._qt_window
+            self._focus_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), win)
+            self._focus_shortcut.activated.connect(self.btn_focus.toggle)
+            self._help_shortcuts = []
+            for keys in ("?", "F1"):
+                sc = QShortcut(QKeySequence(keys), win)
+                sc.activated.connect(self.show_shortcuts)
+                self._help_shortcuts.append(sc)
+        except Exception:
+            pass
+
+    # ---------- toolbar menus, view, shortcuts, tour ----------
+
+    def _build_tool_menus(self, QMenu) -> None:
+        """The dropdowns: Open (scan folder / UCL file), Refine, View and Help, each entry with its icon and its
+        key drawn as a keycap."""
+        from .menus import ToolMenu
+
+        open_menu = ToolMenu(self.btn_dcm)
+        open_menu.add("Open scan folder…", self._open_dicom, icon="mdi6.folder-open-outline")
+        open_menu.add("Add UCL .h5 file(s)…", self._open_ucl, icon="mdi6.file-plus-outline")
+        self.btn_dcm.setMenu(open_menu)
+        self.btn_dcm.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+
+        refine = ToolMenu(self.btn_refine)
+        refine.add("Snap to the blood edge", self.btn_snap.click, icon="mdi6.magnet", tooltip=self.btn_snap.toolTip())
+        refine.add("Fit to the blood pool", self.btn_fit.click, icon="mdi6.target", tooltip=self.btn_fit.toolTip())
+        refine.addSeparator()
+        refine.add("Grow half a pixel", self.btn_grow.click, keys="]", icon="mdi6.arrow-expand-all",
+                   tooltip=self.btn_grow.toolTip())
+        refine.add("Shrink half a pixel", self.btn_shrink.click, keys="[", icon="mdi6.arrow-collapse-all",
+                   tooltip=self.btn_shrink.toolTip())
+        self.btn_refine.setMenu(refine)
+        self.btn_refine.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        view = ToolMenu(self.btn_view)
+        self.act_raw = view.add("Hide contours", lambda on: self.btn_raw.setChecked(on), keys="H",
+                                icon="mdi6.eye-off-outline", checkable=True, tooltip=self.btn_raw.toolTip())
+        self.btn_raw.toggled.connect(lambda on: self.act_raw.isChecked() != on and self.act_raw.setChecked(on))
+        self.act_smooth_image = view.add(
+            "Smooth image", self.set_smooth_image, keys="G", icon="mdi6.blur", checkable=True,
+            checked=self.smooth_image,
+            tooltip="On: smooth (bicubic), like Segment. Off: the scanner's real pixels.")
+        view.add("Brightness and contrast…", self.btn_contrast.click, icon="mdi6.brightness-6",
+                 tooltip="Or hold Ctrl and drag the image")
+        view.addSeparator()
+        view.add("Zoom in", self.btn_zoom_in.click, keys="+", icon="mdi6.magnify-plus-outline")
+        view.add("Zoom out", self.btn_zoom_out.click, keys="−", icon="mdi6.magnify-minus-outline")
+        view.add("Center on the heart", self.btn_zoom_fit.click, keys="F", icon="mdi6.image-filter-center-focus")
+        view.addSeparator()
+        view.add("ED | ES side by side", lambda: self.show_compare(), keys=["Ctrl", "E"],
+                 icon="mdi6.compare-horizontal",
+                 tooltip="This slice at end-diastole and end-systole in place of the image; saves figures")
+        self.btn_view.setMenu(view)
+        self.btn_view.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        help_menu = ToolMenu(self.btn_help)
+        help_menu.add("Keyboard shortcuts", self.show_shortcuts, keys="?", icon="mdi6.keyboard-outline")
+        help_menu.add("Take the tour", lambda: self.start_tour(), icon="mdi6.map-marker-path")
+        help_menu.addSeparator()
+        help_menu.add("Report a problem…", self._report_problem, icon="mdi6.lifebuoy",
+                      tooltip="Saves a report with versions and the recent log, ready to send")
+        self.btn_help.setMenu(help_menu)
+        self.btn_help.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+    def _wall_controls(self) -> QWidget:
+        """The Wall tab's controls: wall lines on the image, what they show, and the septum."""
+        box = QGroupBox("Wall lines on the image")
+        lay = QVBoxLayout(box)
+        self.chk_wall_lines = QCheckBox("Show on the image  (W)")
+        self.chk_wall_lines.toggled.connect(lambda on: self.btn_wall.isChecked() != on and self.btn_wall.setChecked(on))
+        self.btn_wall.toggled.connect(lambda on: self.chk_wall_lines.isChecked() != on
+                                      and self.chk_wall_lines.setChecked(on))
+        lay.addWidget(self.chk_wall_lines)
+        row = QVBoxLayout()
+        self.rb_wall_thickness = QRadioButton("Thickness (mm)")
+        self.rb_wall_thickening = QRadioButton("Thickening, ED → ES (%)")
+        self.rb_wall_thickness.setChecked(True)
+        self.rb_wall_thickness.toggled.connect(lambda on: on and self.set_wall_mode("thickness"))
+        self.rb_wall_thickening.toggled.connect(lambda on: on and self.set_wall_mode("thickening"))
+        row.addWidget(self.rb_wall_thickness)
+        row.addWidget(self.rb_wall_thickening)
+        lay.addLayout(row)
+        row = QHBoxLayout()
+        b_set, b_reset = QPushButton("Set septum"), QPushButton("Reset septum")
+        b_set.setToolTip("Then click the middle of the septum on this slice.")
+        b_reset.setToolTip("Back to the automatic septum (from the RV).")
+        b_set.clicked.connect(lambda: self.start_set_septum())
+        b_reset.clicked.connect(lambda: self.reset_septum(all_slices=False))
+        row.addWidget(b_set)
+        row.addWidget(b_reset)
+        row.addStretch(1)
+        lay.addLayout(row)
+        return box
+
+    def _results_tab_changed(self, key: str) -> None:
+        """Picking a tab brings up what it is about: Wall shows the wall lines; Regions says how to draw one."""
+        if self.session is None:
+            return
+        if key == "wall" and not self.btn_wall.isChecked():
+            self.btn_wall.setChecked(True)
+        elif key == "regions" and not self.session.rois and not self.btn_roi.isChecked():
+            self.lbl_auto.setText("Press R to draw a region of interest.")
+        if key == "wall":
+            QTimer.singleShot(0, self._draw_bullseyes)  # its canvas was hidden: draw at its real size
+
+    def _set_hints(self) -> None:
+        """Hover cards for the toolbar: what each button does in one line, and its key."""
+        from .hints import install, set_hint
+
+        install()
+        for btn, title, body, keys in (
+            (self.btn_dcm, "Open scan", "Open one mouse's folder. Arrow: add UCL .h5 files.", None),
+            (self.btn_save, "Save", "Save contours and choices; they reload with the mouse. Arrow: Save as, Export.", ["Ctrl", "S"]),
+            (self.btn_auto, "Auto LV", "Contour the LV on every slice at this frame (about 1 s).", None),
+            (self.btn_endo, "Endocardium", "Edit the inner LV contour (red).", ["Q"]),
+            (self.btn_epi, "Epicardium", "Edit the outer LV contour (light blue).", ["Q"]),
+            (self.btn_rv, "Right ventricle", "Edit the RV contour (yellow).", ["Q"]),
+            (self.btn_smooth, "Smooth", "Smooth the selected contour on this slice. Repeat for more.", ["S"]),
+            (self.btn_refine, "Refine", "Snap or fit to the blood edge, or grow or shrink by half a pixel.", ["[", "]"]),
+            (self.btn_points, "Points", "Show the selected contour's points, or hide them for a clean view.", ["P"]),
+            (self.btn_brush, "Brush", "Paint pixels instead of editing curves.", None),
+            (self.btn_undo, "Undo", "", ["Ctrl", "Z"]),
+            (self.btn_redo, "Redo", "", ["Ctrl", "Y"]),
+            (self.btn_clear, "Clear", "Delete the selected contour on this slice and frame.",
+             ["Del"]),
+            (self.btn_pan, "Pan", "Left-drag pans instead of editing. Right-drag always pans.",
+             ["Space"]),
+            (self.btn_zoom_fit, "Center", "Center and zoom on the heart.", ["F"]),
+            (self.btn_view, "View", "Hide contours, smooth image, contrast, zoom.", None),
+            (self.btn_wall, "Wall", "Wall thickness lines on this slice. Arrow: thickening, septum.", ["W"]),
+            (self.btn_roi, "Regions of interest", "Measure a drawn region's area and signal, or a distance with "
+                                                  "the ruler. Compare two regions (CNR).", ["R"]),
+            (self.btn_left, "Scans panel", "Mice, series and slices.", None),
+            (self.btn_right, "Results panel", "Volumes, EF, wall and regions.", None),
+            (self.btn_focus, "Focus", "Hide the side panels so the scan fills the window.", ["Ctrl", "Shift", "F"]),
+            (self.btn_help, "Help", "Keyboard shortcuts and the tour.", ["?"]),
+            (self.btn_settings, "Settings", "Model, auto-contour, editing and folder options.", None),
+        ):
+            set_hint(btn, title, body, keys)
+
+    def _image_shortcuts(self) -> None:
+        """Keys that match every other app, working wherever the keyboard focus is (except while typing):
+        + or = zooms in, − zooms out (also with Ctrl and on the keypad), Ctrl+0 centers, Delete / Backspace
+        clears, S smooths, P shows or hides the points.
+
+        They go through napari's key handling, which napari's window feeds every key no other widget used, so
+        they work after clicking a button or a list as well as on the image. "+" can't be bound in napari by
+        name, so it is caught from the key events directly."""
+        bindings = (
+            ("s", lambda: self.btn_smooth.isEnabled() and self._smooth_points()),
+            ("p", lambda: self.btn_points.isEnabled() and self.btn_points.toggle()),
+            ("Delete", self._delete_key), ("Backspace", self._delete_key),
+            ("=", lambda: self.zoom(1.25)), ("Control-=", lambda: self.zoom(1.25)),
+            ("-", lambda: self.zoom(0.8)), ("Control--", lambda: self.zoom(0.8)),
+            ("Control-0", self.fit_heart),
+            ("Control-1", lambda: self.results_tabs.show("function")),
+            ("Control-2", lambda: self.results_tabs.show("wall")),
+            ("Control-3", lambda: self.results_tabs.show("regions")),
+        )
+        for key, fn in bindings:
+            try:
+                self.viewer.bind_key(key, lambda v, f=fn: f(), overwrite=True)
+            except Exception:
+                pass
+        self._key_shortcuts = [key for key, _ in bindings] + ["+"]
+        try:
+            self.viewer.window._qt_viewer.canvas._scene_canvas.events.key_press.connect(self._plus_key)
+        except Exception:  # headless
+            pass
+
+    def _plus_key(self, event) -> None:
+        if getattr(event, "text", "") == "+":  # Shift+= on most keyboards, or the keypad +
+            self.zoom(1.25)
+
+    def set_smooth_image(self, on: bool) -> None:
+        """Draw the image smoothly (bicubic, as Segment does) or as its real pixels. Remembered between runs;
+        the contours are not affected."""
+        on = bool(on)
+        self.smooth_image = on
+        _settings().setValue("view/smooth_image", on)
+        act = getattr(self, "act_smooth_image", None)
+        if act is not None and act.isChecked() != on:
+            act.blockSignals(True)
+            act.setChecked(on)
+            act.blockSignals(False)
+        if "image" in self.viewer.layers:
+            self.viewer.layers["image"].interpolation2d = "cubic" if on else "nearest"
+        self.viewer.status = "Smooth image" if on else "Pixel image: the scanner's real pixels"
+        self._compare_changed()
+
+    def cycle_structure(self) -> None:
+        """Q: switch the contour being edited, Endo → Epi → RV → Endo."""
+        if not self.cmb_add.isEnabled():
+            return
+        self.cmb_add.setCurrentIndex((self.cmb_add.currentIndex() + 1) % 3)
+        self.viewer.status = f"Editing: {('Endo', 'Epi', 'RV')[self.cmb_add.currentIndex()]}"
+
+    def show_shortcuts(self) -> None:
+        """? or F1: every keyboard shortcut on one card."""
+        from .help import ShortcutSheet
+
+        sheet = getattr(self, "_shortcut_sheet", None)
+        if sheet is not None and sheet.isVisible():
+            sheet.close()
+            return
+        self._shortcut_sheet = ShortcutSheet(self.viewer.window._qt_window)
+        self._shortcut_sheet.popup()
+
+    def tour_steps(self) -> list:
+        from .help import TourStep
+
+        left, right = self._side_docks()
+        time = next((d for d in self.docks if d.objectName() == "Time"), None)
+        return [
+            TourStep("Welcome",
+                     "A one-minute tour: opening a scan, contouring and reading the results."),
+            TourStep("Open a scan",
+                     "Open one mouse's folder; its slices load on the left. The arrow adds UCL .h5 files.", lambda: [self.btn_dcm]),
+            TourStep("Your mice and slices",
+                     "Pick a mouse, then a series. Drag slices into base-to-apex order; untick one to leave it "
+                     "out of ED or ES.", lambda: [left]),
+            TourStep("Contour, then choose what to edit",
+                     "Auto LV contours every slice in about a second. Endo, Epi and RV pick the contour to "
+                     "edit (Q cycles).",
+                     lambda: [self.btn_auto, self.btn_endo, self.btn_epi, self.btn_rv]),
+            TourStep("Edit by hand",
+                     "Drag a point to move it, click the line to add one, right-click to delete. S smooths, "
+                     "Refine nudges, P hides the points.",
+                     lambda: [self.btn_smooth, self.btn_refine, self.btn_points, self.btn_brush, self.btn_undo,
+                              self.btn_redo, self.btn_clear]),
+            TourStep("Look closely",
+                     "Pan, center on the heart, and View: hide contours, smooth image, contrast, zoom.", lambda: [self.btn_pan, self.btn_zoom_fit, self.btn_view]),
+            TourStep("Measure",
+                     "Wall shows thickness on the slice. ROI measures a region's area and signal and compares "
+                     "regions (CNR), e.g. scar vs remote muscle on LGE.", lambda: [self.btn_wall, self.btn_roi]),
+            TourStep("Set end-diastole and end-systole",
+                     "Play the cine and set ED and ES for each slice.", lambda: [time]),
+            TourStep("Read the results",
+                     "Results update as you edit, in three tabs: Function, Wall, Regions (Ctrl+1/2/3). Check "
+                     "flagged slices, then export below.", lambda: [right]),
+            TourStep("Make room for the scan",
+                     "Focus hides the side panels; Scans and Results bring each back.", lambda: [self.btn_left, self.btn_right, self.btn_focus]),
+            TourStep("Shortcuts and help",
+                     "Press ? for every shortcut. Replay this tour from Help.",
+                     lambda: [self.btn_help]),
+        ]
+
+    def start_tour(self) -> None:
+        """Show the tour now (Help → Take the tour, or the first time the app opens)."""
+        from .help import Tour
+
+        old = getattr(self, "_tour", None)
+        try:
+            if old is not None and old.isVisible():
+                return
+        except RuntimeError:
+            pass
+        if self.btn_focus.isChecked():
+            self.btn_focus.setChecked(False)
+        restore = getattr(self.viewer.window, "_tracecmr_restore", None)
+        if restore is not None:
+            restore.trigger()
+        logo = None
+        try:
+            from .branding import _logo_pixmap
+
+            logo = _logo_pixmap("dark", 200)
+        except Exception:
+            pass
+
+        def done(completed: bool) -> None:
+            _settings().setValue("tour/seen", True)
+            self.viewer.status = ("Tour finished. Press ? for shortcuts." if completed
+                                  else "Tour skipped. Replay it from Help.")
+
+        self._tour = Tour(self.viewer.window._qt_window, self.tour_steps(), on_finish=done, logo=logo)
+        self._tour.start()
+
+    def maybe_start_tour(self) -> None:
+        """The first time TraceCMR opens: offer the tour (once; TRACECMR_NO_TOUR=1 turns it off)."""
+        import os
+
+        if os.environ.get("TRACECMR_NO_TOUR") or str(_settings().value("tour/seen", False)).lower() in ("true", "1"):
+            return
+        self.start_tour()
+
+    def _show_panel(self, dock, on: bool) -> None:
+        if dock.isHidden() == on:
+            dock.setVisible(on)
+            if on:
+                dock.raise_()
+
+    def _panel_changed(self, btn, on: bool) -> None:
+        if btn.isChecked() != on:
+            btn.blockSignals(True)
+            btn.setChecked(on)
+            btn.blockSignals(False)
+        left, right = self._side_docks()
+        both_hidden = all(d is None or d.isHidden() for d in (left, right))
+        if self.btn_focus.isChecked() != both_hidden:
+            self.btn_focus.blockSignals(True)
+            self.btn_focus.setChecked(both_hidden)
+            self.btn_focus.blockSignals(False)
+
+    def _focus_toggled(self, on: bool) -> None:
+        """Focus: hide both side panels and the time bar (remembering which were open) so the scan fills the
+        window; frames still change with Left / Right. Off again: bring back what was open."""
+        left, right = self._side_docks()
+        time_bar = next((d for d in getattr(self, "docks", []) if d is not None and d.objectName() == "Time"), None)
+        docks = [d for d in (left, right, time_bar) if d is not None]
+        self._focusing = True
+        try:
+            if on:
+                self._focus_restore = [d for d in docks if not d.isHidden()] or docks
+                for d in docks:
+                    d.hide()
+                self.viewer.status = "Focus: panels hidden. Ctrl+Shift+F brings them back."
+            else:
+                for d in getattr(self, "_focus_restore", None) or docks:
+                    d.show()
+                    d.raise_()
+                self.viewer.status = "Ready"
+        finally:
+            self._focusing = False
+
+    def _scale_with_canvas(self) -> None:
+        """Make the image grow and shrink with the viewing area (hiding a panel, Focus, maximising the window),
+        keeping the user's framing. napari otherwise keeps the zoom fixed, so extra room only added black space."""
+        try:
+            native = self.viewer.window._qt_viewer.canvas.native
+        except Exception:
+            return
+        from qtpy.QtCore import QEvent, QObject
+
+        panel = self
+
+        class _Filter(QObject):
+            def eventFilter(self, obj, ev):  # noqa: N802 (Qt name)
+                if ev.type() == QEvent.Type.Resize:
+                    panel._canvas_resized(ev.oldSize(), ev.size())
+                return False
+
+        self._canvas_filter = _Filter(native)
+        native.installEventFilter(self._canvas_filter)
+
+    def _canvas_resized(self, old, new) -> None:
+        if self.session is None or not len(self.viewer.layers):
+            return
+        if old.width() < 50 or old.height() < 50 or new.width() < 50 or new.height() < 50:
+            return
+        try:
+            ext = np.asarray(self.viewer.layers.extent.world)
+            rows, cols = self.viewer.dims.displayed[-2:]
+            h, w = float(ext[1, rows] - ext[0, rows]), float(ext[1, cols] - ext[0, cols])
+        except Exception:
+            return
+        if h <= 0 or w <= 0:
+            return
+        fit_old = min(old.width() / w, old.height() / h)
+        fit_new = min(new.width() / w, new.height() / h)
+        if fit_old > 0 and abs(fit_new / fit_old - 1) > 1e-3:
+            self._camera.zoom = self._camera.zoom * fit_new / fit_old
+
     def _napari_docks(self, show: bool) -> None:
         qv = getattr(self.viewer.window, "_qt_viewer", None)
         for name in ("dockLayerList", "dockLayerControls"):
@@ -1438,6 +2206,14 @@ class TraceCMRWidget(QWidget):
     def _add_target_changed(self, idx):
         if self.editor is not None:
             self.editor.set_focus(ADD_TARGETS[idx])
+        if not self.btn_points.isChecked():  # picking a contour means editing it: its points come back
+            self.btn_points.setChecked(True)
+
+    def _points_toggled(self, on: bool) -> None:
+        if self.editor is not None:
+            self.editor.set_show_dots(on)
+        if self.session is not None:
+            self.lbl_auto.setText("" if on else "Points hidden (left-drag pans). P or Endo / Epi / RV shows them.")
 
     def current_frame(self) -> int:
         return int(self.viewer.dims.current_step[0]) if self.session is not None else 0
@@ -1566,6 +2342,41 @@ class TraceCMRWidget(QWidget):
     def _items(self):
         return [self.list.topLevelItem(i) for i in range(self.list.topLevelItemCount())]
 
+    def _untouched(self, t: int, z: int) -> bool:
+        """True while slice z at frame t still has exactly the LV outline Auto LV drew (any edit, by points, brush,
+        Fit, Grow or Snap, makes it the user's). Hand-drawn slices are never 'untouched'."""
+        s = self.session
+        ml, ran = getattr(s, "model_label", None), getattr(s, "model_ran", None)
+        if ml is None or ran is None or ml.shape != s.label.shape or not ran[z, t]:
+            return False
+        cur, mod = s.label[:, :, z, t], ml[:, :, z, t]
+        lv = (L.LV_BLOODPOOL, L.LV_MYOCARDIUM)
+        return np.array_equal(np.where(np.isin(cur, lv), cur, 0), np.where(np.isin(mod, lv), mod, 0))
+
+    def _run_checks(self) -> None:
+        """Which ED/ES slices to double-check (quality.py), shown as ⚠ in the slice list with the reasons. Only
+        slices still exactly as Auto LV drew them are checked: once you've edited a slice, your outline stands."""
+        from .. import quality
+
+        s = self.session
+        self._checks = {}
+        if s is None:
+            return
+        try:
+            pairs = {}
+            for ph in ("ED", "ES"):
+                pairs[ph] = [(s.t_for(z, ph), z) for z in s.order if z in s.included[ph]
+                             and np.isin(s.label[:, :, z, s.t_for(z, ph)], (1, 2)).any()]
+            found = quality.check_slices(s.label, s.image, s.spacing, pairs, list(s.order), s.valid_unsure())
+            self._checks = {k: v for k, v in found.items() if self._untouched(*k)}
+        except Exception:  # checks are a help; never let them break the results
+            self._checks = {}
+        if hasattr(self, "list"):
+            try:
+                self._relabel_items()
+            except RuntimeError:  # the window is closing
+                pass
+
     def _relabel_items(self):
         s = self.session
         self.list.blockSignals(True)
@@ -1578,10 +2389,20 @@ class TraceCMRWidget(QWidget):
             it.setText(0, f"Slice {z}{tag}")  # the series name is in the tooltip
             r_ed, r_es = (s.reasons[ph].get(z, "") for ph in ("ED", "ES"))
             r_ed, r_es = ("" if r.startswith("wall covers") else r for r in (r_ed, r_es))
+            # Auto LV's own notes ("check: base slice…") only while the slice is still the model's outline
+            def _from_auto_lv(r, ph):
+                why = s.flags.get((s.t_for(z, ph), z))
+                return bool(why) and r.startswith("check") and why[:20] in r
+            r_ed, r_es = ("" if _from_auto_lv(r, ph) and not self._untouched(s.t_for(z, ph), z) else r
+                          for r, ph in ((r_ed, "ED"), (r_es, "ES")))
             if r_ed == r_es:
                 why = [r_ed] if r_ed else []
             else:
                 why = [f"{ph}: {r}" for ph, r in (("ED", r_ed), ("ES", r_es)) if r]
+            checks = getattr(self, "_checks", {}) or {}
+            for ph in ("ED", "ES"):
+                for c in checks.get((s.t_for(z, ph), z), []):
+                    why.append(f"check {ph}: {c}")
             it.setText(3, "; ".join(why))
             flagged = any("check" in w for w in why)
             it.setForeground(3, QColor("#E3A23B") if flagged else QColor("#9AA1A8"))
@@ -1589,7 +2410,15 @@ class TraceCMRWidget(QWidget):
             if flagged:
                 it.setText(0, "⚠ " + it.text(0))
             it.setForeground(0, QColor("#E3A23B") if flagged else it.foreground(1))
-            tip = f"Slice {z}" + (f": {name}" if name else "") + (f"\n{it.text(3)}" if it.text(3) else "")
+            lines = []
+            for w in why:  # one tidy line per reason: "ED: …" / "ES: …"
+                w = w.replace("check ED: ", "ED: ").replace("check ES: ", "ES: ").replace("ED: check: ", "ED: ")
+                w = w.replace("ES: check: ", "ES: ").replace("check: ", "")
+                if w not in lines:
+                    lines.append(w)
+            tip = f"Slice {z}" + (f": {name}" if name else "")
+            if lines:
+                tip += ("\nDouble-check:" if flagged else "") + "".join(f"\n• {ln}" for ln in lines)
             it.setToolTip(0, tip)
         self.list.blockSignals(False)
 
@@ -1659,6 +2488,8 @@ class TraceCMRWidget(QWidget):
             v = st.value(f"models/{key}")
             if v and not os.environ.get(env):
                 os.environ[env] = str(v)
+            elif not v and os.environ.get(env):  # remember it, so the desktop app (no launcher script) finds it too
+                st.setValue(f"models/{key}", os.environ[env])
 
     def set_model_dir(self, key: str, path: str, remember: bool = True) -> str:
         """Use `path` for model `key`; returns the model's status ('ready' or why not)."""
@@ -1694,7 +2525,7 @@ class TraceCMRWidget(QWidget):
         ready = [i for i, k in enumerate(self._model_keys) if ac.available().get(k) == "ready"]
         if ready:
             self.cmb_model.setCurrentIndex(ready[0])
-        self.lbl_auto.setText("" if ready else "No model installed yet: see the README to download one.")
+        self.lbl_auto.setText("" if ready else "No model installed. See the README to download one.")
 
     def autocontour_pairs(self) -> list[tuple[int, int]]:
         """Which (slice, frame) images Auto-contour does: the frame being viewed on every slice. When that
@@ -1742,9 +2573,8 @@ class TraceCMRWidget(QWidget):
 
                     ans = QMessageBox.question(
                         self, "Redo this slice?",
-                        f"Every slice at this frame already has contours, so Auto LV won't touch them.\n\n"
-                        f"Redo slice {z0} only? Its endo and epi are replaced (an RV you drew is kept). "
-                        f"Ctrl+Z brings the old ones back.")
+                        f"Every slice at this frame already has contours.\n\n"
+                        f"Redo slice {z0}? Its endo and epi are replaced (your RV is kept). Ctrl+Z undoes.")
                     redo_current = ans == QMessageBox.StandardButton.Yes
                 if not redo_current:
                     self.lbl_auto.setText("Nothing changed: every slice at this frame already has contours.")
@@ -1811,14 +2641,14 @@ class TraceCMRWidget(QWidget):
             self._preloaded = False
 
     def _smooth_points(self):
-        """Segment-style: smooth both contours on the slice being viewed and hide its points."""
+        """Smooth the selected contour on the slice being viewed (key S). Its points stay for adjusting."""
         if self.editor is None or self.editor.points is None or not self.rb_curves.isChecked():
             self.lbl_auto.setText("Switch to Curves to smooth contours.")
             return
         step = self.viewer.dims.current_step
-        n = self.editor.smooth_and_hide(int(step[0]), int(step[1]))
+        n = self.editor.smooth(int(step[0]), int(step[1]))
         name = {"endo": "endocardium", "epi": "epicardium", "rv": "RV"}.get(self.editor.focus, "contours")
-        self.lbl_auto.setText(f"Smoothed the {name} on this slice. Again for smoother, Points to adjust, Undo to revert."
+        self.lbl_auto.setText(f"Smoothed the {name}. S again for more; Ctrl+Z undoes."
                               if n else f"No {name} on this slice and frame.")
 
     def _snap_slice(self):
@@ -1835,7 +2665,7 @@ class TraceCMRWidget(QWidget):
         after = snap_slice(before, s.image[:, :, z, t], s.spacing[:2])
         grown = int((after == 1).sum() - (before == 1).sum())
         if grown == 0:
-            self.lbl_auto.setText("Snap to edge: nothing to add on this slice.")
+            self.lbl_auto.setText("Snap: nothing to add on this slice.")
             return
         self.editor.push_undo()  # the change lives in the curves, so Undo reverts it
         c = mask_to_curve(after == 1)
@@ -1844,8 +2674,8 @@ class TraceCMRWidget(QWidget):
             self.editor.edited.add((t, z, "endo"))
             self.editor._refresh_layers()
         dx, dy, _ = s.spacing
-        self.lbl_auto.setText(f"Snap to edge: added {grown} bright pixels ({grown * dx * dy:.2f} mm²) to the blood pool. "
-                              "Undo reverts.")
+        self.lbl_auto.setText(f"Snap: added {grown} pixels ({grown * dx * dy:.2f} mm²) to the blood pool. "
+                              "Ctrl+Z undoes.")
 
     def _fit_slice(self):
         """Redraw the endocardium on the current slice around the bright blood (refine.fit_slice)."""
@@ -1860,8 +2690,8 @@ class TraceCMRWidget(QWidget):
         before = s.label[:, :, z, t].copy()
         after = fit_slice(before, s.image[:, :, z, t], s.spacing[:2])
         if np.array_equal(after == 1, before == 1):
-            self.lbl_auto.setText("Fit: no clear blood edge found on this slice (needs an endo and epi, and bright "
-                                  "blood). Drag the interpolation points instead.")
+            self.lbl_auto.setText("Fit: no clear blood edge on this slice (needs endo, epi and bright blood). "
+                                  "Drag the points instead.")
             return
         c = mask_to_curve(after == 1)
         if c is None:
@@ -1874,8 +2704,8 @@ class TraceCMRWidget(QWidget):
         self.editor._notify()
         added = int(((after == 1) & (before != 1)).sum())
         removed = int(((before == 1) & (after != 1)).sum())
-        self.lbl_auto.setText(f"Fit: added {added} bright pixels and gave {removed} dark pixels back to the wall. "
-                              "Check it; Undo reverts.")
+        self.lbl_auto.setText(f"Fit: added {added} blood pixels and gave {removed} back to the wall. Check it; "
+                              "Ctrl+Z undoes.")
 
     def grow_contour(self, d: float):
         """Grow (d > 0) or shrink (d < 0) the selected contour on the slice and frame being viewed, by d pixels."""
@@ -1891,8 +2721,7 @@ class TraceCMRWidget(QWidget):
                                   + (" (it would cross the other contour)." if d > 0 or name == "epi" else "."))
         else:
             dx, dy, _ = self.session.spacing
-            self.lbl_auto.setText(f"{'Grew' if d > 0 else 'Shrank'} the {word} ({change * dx * dy:+.3f} mm²). "
-                                  "Press again for more, Undo reverts.")
+            self.lbl_auto.setText(f"{'Grew' if d > 0 else 'Shrank'} the {word} ({change * dx * dy:+.3f} mm²).")
 
     def undo(self):
         """Undo the last contour edit (Ctrl+Z)."""
@@ -1906,9 +2735,82 @@ class TraceCMRWidget(QWidget):
             self._label_undo = None
             self.viewer.layers["contours"].data = self.session.label.transpose(3, 2, 1, 0).copy()
             self._after_labels_changed(keep_frame=here)
-            self.lbl_auto.setText("Undid Auto LV: your previous contours are back.")
+            self.lbl_auto.setText("Auto LV undone: previous contours restored.")
         else:
             self.lbl_auto.setText("Nothing to undo.")
+
+    def _offer_recovery(self) -> None:
+        """If TraceCMR closed before this mouse's last changes were saved, offer to bring them back."""
+        if self.session is None:
+            return
+        rec = self.autosave.session_opened()
+        if rec is None:
+            return
+        from qtpy.QtWidgets import QMessageBox
+
+        if getattr(self, "_testing", False):
+            choice = getattr(self, "_recovery_answer", QMessageBox.StandardButton.No)
+        else:
+            box = QMessageBox(self.viewer.window._qt_window if self._has_window() else self)
+            box.setWindowTitle("Recover unsaved changes")
+            box.setText(f"TraceCMR closed before your last changes to {self.session.subject_id} were saved "
+                        f"(autosaved at {self.autosave.when(rec)}).")
+            box.setInformativeText("Restore them?")
+            box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.setDefaultButton(QMessageBox.StandardButton.Yes)
+            box.setIcon(QMessageBox.Icon.NoIcon)
+            pal = box.palette()  # dark from its first frame: no light flash before the theme applies
+            pal.setColor(pal.ColorRole.Window, QColor("#1B1F25"))
+            box.setPalette(pal)
+            box.setAutoFillBackground(True)
+            box.exec()
+            choice = box.standardButton(box.clickedButton())
+        if choice != QMessageBox.StandardButton.Yes:
+            rec.unlink(missing_ok=True)
+            return
+        try:
+            self.session.load_contours(rec)
+        except Exception as e:
+            self.lbl_auto.setText(f"⚠ Could not restore: {e}")
+            return
+        here = self.current_frame()
+        self.viewer.layers["contours"].data = self.session.label.transpose(3, 2, 1, 0).copy()
+        self._after_labels_changed(keep_frame=here)
+        self.roi.refresh()
+        self.autosave.session_opened()  # the restored state is the new baseline (the file stays until you save)
+        self.lbl_auto.setText("Unsaved changes restored. Save to keep them.")
+
+    def show_compare(self) -> None:
+        """ED | ES side by side in place of the image (Ctrl+E shows and hides it); it follows the slice, edits
+        and contrast."""
+        if self.session is None:
+            self.lbl_auto.setText("Open a scan first.")
+            return
+        if getattr(self, "_compare", None) is None:
+            from .compare import CompareWindow
+
+            self._compare = CompareWindow(self)
+            self._compare.show()
+        else:
+            self._compare.toggle()
+
+    def _compare_changed(self, *_) -> None:
+        c = getattr(self, "_compare", None)
+        if c is not None:
+            c.schedule()
+
+    def _report_problem(self) -> None:
+        from .support import report_problem
+
+        path = report_problem(self)
+        self.lbl_auto.setText(f"Problem report saved: {path.name} (copied to the clipboard).")
+
+    def redo(self):
+        """Redo the last undone contour edit (Ctrl+Y or Ctrl+Shift+Z)."""
+        if self.editor is not None and self.rb_curves.isChecked() and self.editor.redo():
+            self.lbl_auto.setText("Redone.")
+        else:
+            self.lbl_auto.setText("Nothing to redo.")
 
     def clear_slice(self):
         """The trash can: delete both contours on the slice and frame being viewed."""
@@ -1916,13 +2818,11 @@ class TraceCMRWidget(QWidget):
             return
         t, z = (int(v) for v in self.viewer.dims.current_step[:2])
         n = self.editor.clear_slice(t, z)
-        self.lbl_auto.setText(f"Cleared slice {z}, frame {t}. Undo (Ctrl+Z) brings it back." if n
+        self.lbl_auto.setText(f"Cleared slice {z}, frame {t}. Ctrl+Z undoes." if n
                               else "No contours on this slice and frame.")
 
-    def _edit_points(self):
-        if self.editor is not None:
-            step = self.viewer.dims.current_step
-            self.editor.show_slice_points(int(step[0]), int(step[1]))
+    def _edit_points(self):  # older name: show the points
+        self.btn_points.setChecked(True)
 
     def _smooth_toggled(self, on: bool):
         if self.session is None:
@@ -1963,7 +2863,7 @@ class TraceCMRWidget(QWidget):
         sel_ed = [r for r in rows if r["slice"] in s.included["ED"]]
         sel_es = [r for r in rows if r["slice"] in s.included["ES"]]
         edv, esv = sum(r["edv_ul"] for r in sel_ed), sum(r["esv_ul"] for r in sel_es)
-        total = {"slice": "All selected", "edv_ul": edv, "esv_ul": esv,
+        total = {"slice": "Total", "edv_ul": edv, "esv_ul": esv,
                  "ef_pct": 100 * (edv - esv) / edv if edv else float("nan"),
                  "mass_ed_mg": sum(r["mass_ed_mg"] for r in sel_ed), "included": True}
         self.tbl_slices.setRowCount(len(rows) + 1)
@@ -1973,21 +2873,24 @@ class TraceCMRWidget(QWidget):
         for i, r in enumerate(rows + [total]):
             z = r["slice"]
             unset = r.get("es_not_set", False)
-            label = str(z) if isinstance(z, str) else f"Slice {z}"
+            label = str(z)
             vals = [label, f"{r['edv_ul']:.1f}", "ES not set" if unset else f"{r['esv_ul']:.1f}",
                     "–" if unset or not np.isfinite(r["ef_pct"]) else f"{r['ef_pct']:.0f}", f"{r['mass_ed_mg']:.1f}"]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
+                if c > 0:  # numbers right-aligned so decimals line up
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if not r["included"]:
                     it.setForeground(grey)
                 elif unset and c in (0, 2, 3):
                     it.setForeground(warn)
-                    it.setToolTip("ES is still the same frame as ED on this slice. Go to the slice, play its cine, "
-                                  "and press Set ES here on the smallest frame.")
+                    it.setToolTip("ES equals ED on this slice. Play its cine and press Set ES here on the "
+                                  "smallest frame.")
                 if i == len(rows):
                     it.setFont(bold)
                 self.tbl_slices.setItem(i, c, it)
-        self.tbl_slices.setFixedHeight(min(28 + 26 * (len(rows) + 1), 320))
+        head = self.tbl_slices.horizontalHeader().sizeHint().height()
+        self.tbl_slices.setFixedHeight(min(head + 4 + 26 * (len(rows) + 1), 340))
         self._select_table_row()
         if not getattr(self, "_computing", False):  # keep the results live, like Segment
             self.compute(quiet=True)
@@ -2046,11 +2949,11 @@ class TraceCMRWidget(QWidget):
         try:
             fn, wall, notes = s.compute()
         except Exception as e:
-            if quiet:
+            if quiet:  # still incomplete: say what is missing, without a warning colour
                 for lab in self.res_labels.values():
                     lab.setText("–")
                 self.lbl_notes.setStyleSheet(NOTE_STYLE)
-                self.lbl_notes.setText("Results appear here once end-diastole and end-systole both have contours.")
+                self.lbl_notes.setText(f"Results appear once ED and ES both have contours. Missing: {e}")
                 return
             self.lbl_notes.setStyleSheet(WARN_STYLE)
             self.lbl_notes.setText(f"⚠ {e}")
@@ -2068,15 +2971,25 @@ class TraceCMRWidget(QWidget):
             lab.setText(f"{rv[key]:.1f}" if rv else "–")
         self._bullseye_wall = wall
         self._draw_bullseyes()
+        self._compare_changed()
+        self._run_checks()
         self._refresh_slice_table()
         self._computing = False
         if self._wall_on():
             self.draw_wall()
         all_notes = notes + fn.flags + (wall.flags if wall else [])
+        if self._checks:
+            per = {}
+            for (t, z), why in self._checks.items():
+                ph = "ED" if t == s.t_for(z, "ED") else "ES"
+                per.setdefault(z, []).append(ph)
+            listed = ", ".join(f"{z} ({'/'.join(sorted(set(phs)))})" for z, phs in
+                               sorted(per.items(), key=lambda kv: s.order.index(kv[0]) if kv[0] in s.order else 0))
+            all_notes.insert(0, f"Double-check slice(s) {listed}: marked ⚠ in the slice list (hover for why). "
+                                "Unmarked slices are less likely, not certain, to be right.")
         missing = s.es_not_set()
-        self.lbl_warn.setText(f"⚠ EF is too low: ES isn't set on slice(s) {', '.join(map(str, missing))}. Go to "
-                              "each one, play its cine and press Set ES here on the smallest frame (orange rows "
-                              "below)." if missing else "")
+        self.lbl_warn.setText(f"⚠ ES not set on slice(s) {', '.join(map(str, missing))}, so EF reads low. On each, "
+                              "play the cine and press Set ES here at the smallest frame." if missing else "")
         self.lbl_warn.setVisible(bool(missing))
         self.lbl_notes.setStyleSheet(NOTE_STYLE)
         self.lbl_notes.setText("\n".join(f"• {n}" for n in all_notes))
@@ -2129,37 +3042,66 @@ class TraceCMRWidget(QWidget):
     # ---------- brightness / contrast (Segment style) ----------
 
     def _build_contrast_popup(self) -> None:
+        """Brightness and contrast: a floating card over the image (drag it by its title, Esc closes)."""
         from qtpy.QtWidgets import QSlider
 
-        self.contrast_popup = QDialog(self)
-        self.contrast_popup.setWindowTitle("Brightness and contrast")
-        lay = QGridLayout(self.contrast_popup)
+        from .hints import set_hint
+        from .popover import Popover, keycap
+
+        pop = Popover(self.viewer.window._qt_window if self._has_window() else self, "Brightness and contrast")
+        self.contrast_popup = pop
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
         self.sld_brightness, self.sld_contrast = QSlider(Qt.Orientation.Horizontal), QSlider(Qt.Orientation.Horizontal)
+        self._contrast_values = []
         for r, (name, sld) in enumerate((("Brightness", self.sld_brightness), ("Contrast", self.sld_contrast))):
             sld.setRange(-100, 100)
             sld.setValue(0)
-            sld.setMinimumWidth(240)
+            sld.setMinimumWidth(220)
             sld.valueChanged.connect(self._apply_contrast)
-            lay.addWidget(QLabel(name), r, 0)
-            lay.addWidget(sld, r, 1)
+            val = QLabel("0")
+            val.setObjectName("value")
+            val.setFixedWidth(34)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            sld.valueChanged.connect(lambda v, lbl=val: lbl.setText(f"{v:+d}" if v else "0"))
+            grid.addWidget(QLabel(name), r, 0)
+            grid.addWidget(sld, r, 1)
+            grid.addWidget(val, r, 2)
+        pop.body.addLayout(grid)
         row = QHBoxLayout()
-        b_auto, b_reset, b_close = QPushButton("Auto (this slice)"), QPushButton("Reset"), QPushButton("Close")
-        b_auto.setToolTip("Stretch the contrast to the slice and frame you are viewing")
+        b_auto, b_reset = QPushButton("Auto for this slice"), QPushButton("Reset")
+        set_hint(b_auto, "Auto", "Stretch the contrast to this slice and frame.")
+        set_hint(b_reset, "Reset", "Back to the default for the whole scan.")
         b_auto.clicked.connect(self._auto_contrast)
         b_reset.clicked.connect(lambda: self._reset_contrast())
-        b_close.clicked.connect(self.contrast_popup.hide)
-        for b in (b_auto, b_reset, b_close):
-            row.addWidget(b)
-        lay.addLayout(row, 2, 0, 1, 2)
-        note = QLabel("Tip: hold Ctrl and drag the image: left/right = contrast, up/down = brightness.")
-        note.setStyleSheet(NOTE_STYLE)
-        note.setWordWrap(True)
-        lay.addWidget(note, 3, 0, 1, 2)
+        row.addWidget(b_auto)
+        row.addWidget(b_reset)
+        row.addStretch(1)
+        pop.body.addLayout(row)
+        tip = QHBoxLayout()
+        tip.setSpacing(6)
+        tip.addWidget(keycap("Ctrl"))
+        note = QLabel("+ drag on the image:  ↔ contrast,  ↕ brightness")
+        note.setObjectName("note")
+        tip.addWidget(note)
+        tip.addStretch(1)
+        pop.body.addLayout(tip)
         self._contrast_base = None
 
+    def _has_window(self) -> bool:
+        try:
+            return self.viewer.window._qt_window is not None
+        except Exception:
+            return False
+
     def _show_contrast_popup(self) -> None:
-        self.contrast_popup.show()
-        self.contrast_popup.raise_()
+        anchor = None
+        try:
+            anchor = self.viewer.window._qt_viewer.canvas.native
+        except Exception:
+            pass
+        self.contrast_popup.show_near(anchor)
 
     def _reset_contrast(self, base=None) -> None:
         """Back to the default window: 0.5th to 99.5th percentile of the whole scan."""
@@ -2202,7 +3144,7 @@ class TraceCMRWidget(QWidget):
     def _pan_toggled(self, on: bool) -> None:
         if self.editor is not None:
             self.editor.pan_mode = on
-        self.lbl_auto.setText("Pan on: drag to move the image (Pan or Space again to edit)." if on else "")
+        self.lbl_auto.setText("Pan on: drag moves the image. Space to edit again." if on else "")
 
     WALL_RANGE_MM = (0.4, 1.6)  # colour scale of the wall lines, same as the ED wall bullseye
 
@@ -2213,7 +3155,30 @@ class TraceCMRWidget(QWidget):
         if not self.btn_wall.isChecked():
             self.btn_wall.setChecked(True)
         self.editor.click_hook = self._septum_clicked
-        self.lbl_auto.setText("Click the middle of the septum on this slice (the wall shared with the RV). Esc cancels.")
+        self.lbl_auto.setText("Click the middle of the septum (the wall shared with the RV). Esc cancels.")
+
+    def _roi_toggled(self, on: bool) -> None:
+        if on and self.session is None:
+            self.btn_roi.setChecked(False)
+            return
+        self.roi.set_active(on)
+
+    def _escape(self) -> None:
+        """Esc: leave the ED | ES view, else stop drawing regions, else cancel a pending click."""
+        c = getattr(self, "_compare", None)
+        if c is not None and c.is_open():
+            c.hide()
+        elif self.btn_roi.isChecked():
+            self.btn_roi.setChecked(False)
+        else:
+            self.cancel_click()
+
+    def _delete_key(self) -> None:
+        """Delete / Backspace: remove the selected region in ROI mode, else clear the contour on this slice."""
+        if self.btn_roi.isChecked():
+            self.roi.remove_selected()
+        elif self.btn_clear.isEnabled():
+            self.clear_slice()
 
     def cancel_click(self) -> None:
         if self.editor is not None and self.editor.click_hook is not None:
@@ -2230,15 +3195,14 @@ class TraceCMRWidget(QWidget):
         if not blood.any():
             blood = s.label[:, :, z, s.t_for(z, "ED")] == 1
         if not blood.any():
-            self.lbl_auto.setText(f"Slice {z} has no endocardium yet: draw it first, then set the septum.")
+            self.lbl_auto.setText(f"Slice {z} has no endocardium: draw it, then set the septum.")
             return
         cx, cy = _ndi.center_of_mass(blood)
         dx, dy, _ = s.spacing
         s.septum_manual[z] = float(np.rad2deg(np.arctan2((p[1] - cy) * dy, (p[0] - cx) * dx)) % 360.0)
         self.compute(quiet=True)
         self.draw_wall()
-        self.lbl_auto.setText(f"Septum set by hand on slice {z} (magenta line). It's saved with the mouse; "
-                              "Wall menu → Reset brings back the automatic one.")
+        self.lbl_auto.setText(f"Septum set by hand on slice {z} (magenta). Reset septum restores the automatic one.")
 
     def reset_septum(self, all_slices: bool) -> None:
         s = self.session
@@ -2268,6 +3232,11 @@ class TraceCMRWidget(QWidget):
         """'thickness' or 'thickening': what the Wall lines show (and turns Wall on)."""
         self.wall_mode = mode
         self.act_wall[mode].setChecked(True)
+        rb = getattr(self, "rb_wall_thickness" if mode == "thickness" else "rb_wall_thickening", None)
+        if rb is not None and not rb.isChecked():
+            rb.blockSignals(True)
+            rb.setChecked(True)
+            rb.blockSignals(False)
         if self.btn_wall.isChecked():
             self.draw_wall()
         else:
@@ -2302,9 +3271,11 @@ class TraceCMRWidget(QWidget):
             return
         self._drawing_wall = True
         try:
-            self._sync_labels()
             s = self.session
             t, z = (int(v) for v in self.viewer.dims.current_step[:2])
+            if not (0 <= t < s.label.shape[3] and 0 <= z < s.label.shape[2]) or "image" not in self.viewer.layers:
+                return  # mid-way through opening a mouse: nothing to draw yet
+            self._sync_labels()
             dx, dy, dz = s.spacing
             msg = "Wall: no endo and epi on this slice and frame."
             lines, colours, widths = [], [], []
@@ -2313,8 +3284,8 @@ class TraceCMRWidget(QWidget):
                 st_ed = slice_thickness(s.label[:, :, z, t_ed], (dx, dy))
                 st_es = slice_thickness(s.label[:, :, z, t_es], (dx, dy)) if t_es != t_ed else None
                 if st_ed is None or st_es is None or st_ed.chords_mm is None or st_es.chords_mm is None:
-                    msg = (f"Thickening needs contours at both ED (frame {t_ed}) and ES (frame {t_es}) on slice {z}."
-                           if t_es != t_ed else f"Thickening: ES isn't set on slice {z} yet.")
+                    msg = (f"Thickening needs ED (frame {t_ed}) and ES (frame {t_es}) contours on slice {z}."
+                           if t_es != t_ed else f"Thickening: ES not set on slice {z}.")
                 else:
                     n = self.WALL_SECTORS
                     edges = np.linspace(0, 360, n + 1)
@@ -2334,19 +3305,19 @@ class TraceCMRWidget(QWidget):
                     lines, colours = self._wall_lines(show, t, z, pct[idx], lo, hi, "RdYlGn")
                     ok = np.isfinite(pct)
                     thin = int((pct[ok] < 0).sum())
-                    msg = (f"Thickening, slice {z} (ED frame {t_ed} → ES frame {t_es}): mean {np.nanmean(pct):.0f}% "
-                           f"(wall {np.nanmean(m_ed):.2f} → {np.nanmean(m_es):.2f} mm). Green = healthy (40%+), "
-                           f"yellow = weak (~20% or less), red = thins" + (f"; thinning in {thin} of {ok.sum()} sectors." if thin else "."))
+                    msg = (f"Thickening, slice {z}: mean {np.nanmean(pct):.0f}% (wall {np.nanmean(m_ed):.2f} → "
+                           f"{np.nanmean(m_es):.2f} mm). Green ≥40%, yellow ≤20%, red thins"
+                           + (f"; thinning in {thin} of {ok.sum()} sectors." if thin else "."))
                     if t not in (t_ed, t_es):
-                        msg += " Shown on the ED outline (go to ED or ES to see it on that frame)."
+                        msg += " Shown on the ED outline."
             else:
                 st = slice_thickness(s.label[:, :, z, t], (dx, dy))
                 if st is not None and st.chords_mm is not None:
                     lo, hi = self.WALL_RANGE_MM
                     lines, colours = self._wall_lines(st, t, z, st.thickness_mm, lo, hi, WALL_CMAP_NAME)  # same scale as the ED bullseye
                     th = st.thickness_mm[np.isfinite(st.thickness_mm)]
-                    msg = (f"Wall, slice {z}, frame {t}: mean {th.mean():.2f} mm (thinnest {th.min():.2f}, "
-                           f"thickest {th.max():.2f}). Blue = thin, green = typical, red = thick ({lo}–{hi} mm, as the bullseye).")
+                    msg = (f"Wall, slice {z}: mean {th.mean():.2f} mm (range {th.min():.2f}–{th.max():.2f}). "
+                           f"Blue thin → red thick ({lo}–{hi} mm).")
             from ..wall import septal_angle
 
             by_hand = z in s.septum_manual
@@ -2388,10 +3359,10 @@ class TraceCMRWidget(QWidget):
                     lines.append(np.array([[t, z, *a0], [t, z, *a1]]))
                     colours.append((1.0, 0.0, 1.0, 1.0))  # magenta: no contour or scale uses it
                     widths.append(1.1 if k == 0 else 0.9)
-                msg += (" Magenta line = septum, set by hand." if by_hand else
-                        " Magenta line = septum (from the RV), short magenta lines = RV insertion points.")
+                msg += (" Magenta line: septum, set by hand." if by_hand else
+                        " Magenta: septum (from the RV); short lines: RV insertion points.")
             elif blood.any():
-                msg += " No septum on this slice (no RV here): Wall menu → Set the septum, to place it by hand."
+                msg += " No septum here (no RV): Wall menu → Set the septum."
             if layer is None:
                 prev = self.viewer.layers.selection.active  # adding a layer selects it: give the selection back
                 layer = self.viewer.add_shapes(name=name, ndim=4, scale=(1, dz, dy, dx))
@@ -2414,16 +3385,22 @@ class TraceCMRWidget(QWidget):
         """Hide every contour (on) to look at the raw image, or bring them back. Nothing is deleted."""
         if self.session is None:
             return
+        # Only visibility changes: nothing is rebuilt, so the contours come back the instant H is released.
+        curves_mode = self.rb_curves.isChecked() and self.editor is not None
         if on:
-            self._sync_labels()
             for name in ("contours", "curves", "control points"):
                 if name in self.viewer.layers:
                     self.viewer.layers[name].visible = False
             if self.editor is not None:
                 self.editor.set_active(False)
-            self.lbl_auto.setText("Raw image: contours hidden (press H or Raw to bring them back).")
+            self.lbl_auto.setText("Contours hidden (H to show).")
         else:
-            self._mode_changed()
+            if curves_mode:
+                self.editor.set_active(True)
+                if self.roi.active:  # drawing regions: keep napari from panning on left-drag
+                    self.roi.set_active(True)
+            elif "contours" in self.viewer.layers:
+                self.viewer.layers["contours"].visible = True
             self.lbl_auto.setText("")
 
     def _export(self):
@@ -2438,9 +3415,85 @@ class TraceCMRWidget(QWidget):
         self._write_csv(path)
         self.lbl_notes.setText(self.lbl_notes.text() + f"\n• Saved {Path(path).name}")
 
+    def study_table_path(self) -> Path:
+        return self.contours_dir() / "study_summary.xlsx"
+
+    def export_all(self, quiet: bool = False) -> dict | None:
+        """One click: save, then the mouse's workbook, bullseyes and slice images in its results folder, and its row
+        in the study table. Returns what was written (None if nothing could be)."""
+        from . import report
+        from ..viz import save_bullseye
+
+        if self.session is None:
+            return None
+        self.compute(quiet=True)
+        if not self.last:
+            self.lbl_auto.setText("Export needs ED and ES contours first.")
+            return None
+        path = self.save_contours(quiet=True)
+        if path is None:
+            return None
+        fn, wall = self.last
+        s = self.session
+        try:
+            _, _, notes = s.compute()
+        except Exception:
+            notes = []
+        rep = report.build(s, fn, wall, getattr(self, "last_rv", None), notes)
+        stem = self._stem(path)
+        out = {"folder": path.parent}
+        try:
+            out["workbook"] = report.write_mouse(path.parent / f"{stem}_TraceCMR_results.xlsx", rep)
+            if s.rois:
+                out["rois"] = self.roi.export_csv(path.parent / f"{stem}_ROIs.csv")
+            img_dir = self._images_dir(path)
+            img_dir.mkdir(parents=True, exist_ok=True)
+            if wall is not None:
+                aha = wall.ed.reference.startswith("septum")
+                save_bullseye({lv: r.segments_mm for lv, r in wall.ed.levels.items()}, img_dir / "bullseye_ED_wall.png",
+                              "ED wall thickness (mm)", "mm", 0.4, 1.6, cmap=WALL_CMAP_NAME, aha=aha)
+                save_bullseye(wall.thickening_pct, img_dir / "bullseye_thickening.png", "Systolic thickening (%)",
+                              "%", *self.THICKENING_RANGE, cmap="RdYlGn", fmt="{:.0f}", aha=aha)
+            out["images"] = len(list(img_dir.glob("*.png")))
+        except Exception as e:
+            self.lbl_auto.setText(f"⚠ Export failed: {e}")
+            if not quiet and not getattr(self, "_testing", False):
+                from qtpy.QtWidgets import QMessageBox
+
+                QMessageBox.warning(self, "Export failed", f"The export stopped with this error:\n\n{e}\n\n"
+                                    "Your contours were saved.")
+            return None
+        try:
+            out["study"] = report.update_study(self.study_table_path(), rep["study"], key=str(path.parent.name or path))
+        except PermissionError:
+            out["study"] = None
+            self.lbl_auto.setText(f"Exported. {self.study_table_path().name} is open in Excel: close it and export "
+                                  "again to add this mouse's row.")
+        if out.get("study") is not None:
+            xl = Path(out["workbook"]).suffix == ".xlsx"
+            self.lbl_auto.setText(f"Exported {Path(out['workbook']).name}, {out['images']} images and the study row "
+                                  f"in {Path(out['study']).name}." + ("" if xl else " (CSV: run TraceCMR update for "
+                                                                     "Excel files.)"))
+        self._last_export = out
+        if not quiet and not getattr(self, "_testing", False):
+            from qtpy.QtWidgets import QMessageBox
+
+            box = QMessageBox(self)
+            box.setWindowTitle("Exported")
+            box.setText(f"Everything for {s.subject_id} is in\n{path.parent}\n\n• {Path(out['workbook']).name}\n"
+                        f"• {out['images']} images in images\\\n"
+                        + (f"• its row in {Path(out['study']).name} ({Path(out['study']).parent.name})"
+                           if out.get("study") else "• study table not updated (open in Excel?)"))
+            opened = box.addButton("Open folder", QMessageBox.ButtonRole.ActionRole)
+            box.addButton(QMessageBox.StandardButton.Ok)
+            box.exec()
+            if box.clickedButton() is opened:
+                self._open_saved_folder()
+        return out
+
     def _write_csv(self, path):
         fn, wall = self.last
-        with open(path, "w", newline="") as fh:
+        with open(path, "w", newline="", encoding="utf-8-sig") as fh:
             w = csv.writer(fh)
             w.writerow(["measure", "value"])
             for k, v in fn.as_row().items():
@@ -2467,7 +3520,8 @@ class TraceCMRWidget(QWidget):
         for wdg in (self.spin_ed, self.spin_es, self.btn_show_ed, self.btn_show_es, self.btn_auto_frames,
                     self.btn_play, self.btn_set_ed, self.btn_set_es,
                     self.btn_flip, self.btn_auto_order, self.list, self.btn_suggest, self.btn_compute, self.btn_export,
-                    self.rb_curves, self.rb_pixels, self.cmb_add, self.btn_auto, self.chk_smooth, self.btn_smooth, self.btn_undo, self.btn_points, self.btn_snap, self.btn_fit, self.btn_grow, self.btn_shrink, self.btn_clear,
+                    self.rb_curves, self.rb_pixels, self.cmb_add, self.btn_auto, self.chk_smooth, self.btn_smooth, self.btn_undo, self.btn_redo, self.btn_points, self.btn_snap, self.btn_fit, self.btn_grow, self.btn_shrink, self.btn_clear,
                     self.btn_endo, self.btn_epi, self.btn_rv, self.btn_brush, self.btn_zoom_in, self.btn_zoom_out,
-                    self.btn_zoom_fit, self.chk_per_slice, self.btn_raw, self.btn_wall, self.btn_contrast, self.btn_pan, self.btn_export_img):
+                    self.btn_zoom_fit, self.chk_per_slice, self.btn_raw, self.btn_wall, self.btn_contrast, self.btn_pan, self.btn_export_img,
+                    self.btn_refine, self.btn_view, self.btn_roi):
             wdg.setEnabled(on)

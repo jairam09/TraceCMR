@@ -18,6 +18,25 @@ from skimage import measure
 from . import labels as L
 from .io import CardiacImage
 
+
+def _use_app_font() -> None:
+    """Figures in the app's font (Inter, bundled with the app) so charts and exported images match the interface;
+    DejaVu Sans stays as the fallback for any character Inter lacks."""
+    try:
+        from matplotlib import font_manager
+
+        fonts = Path(__file__).with_name("app") / "resources" / "fonts"
+        files = sorted(fonts.glob("Inter-*.ttf"))
+        for f in files:
+            font_manager.fontManager.addfont(str(f))
+        if files:
+            matplotlib.rcParams["font.family"] = ["Inter", "DejaVu Sans"]
+    except Exception:  # cosmetic only
+        pass
+
+
+_use_app_font()
+
 CONTOUR_STYLE = {
     "LV endo": "red",
     "LV epi": "lime",
@@ -120,11 +139,12 @@ def save_bullseye(
     vmax: float,
     cmap: str = "viridis",
     fmt: str = "{:.2f}",
+    aha: bool = False,
 ) -> Path:
     """Save a bullseye plot to a file (see `draw_bullseye`)."""
     out_path = Path(out_path)
     fig = plt.figure(figsize=(4.6, 4.2))
-    draw_bullseye(fig, values, title, label, vmin, vmax, cmap, fmt)
+    draw_bullseye(fig, values, title, label, vmin, vmax, cmap, fmt, aha=aha)
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)

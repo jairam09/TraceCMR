@@ -143,7 +143,7 @@ def combine(series: list[Series], name: str | None = None) -> Series:
     ordered = sorted(series, key=lambda s: s.position_mm)
     pos = [round(s.position_mm, 2) for s in ordered]
     if len(set(pos)) != len(pos):
-        raise ValueError("two of the series are at the same slice position (a repeated slice?): pick one")
+        raise ValueError("two series share a slice position (a repeated slice?): pick one")
     paths = [p for s in ordered for p in s.paths]
     stack = Series(name=name or f"Short-axis stack ({len(series)} slices)", kind="Short axis",
                    source=ordered[0].source, n_slices=len(ordered), n_frames=min(s.n_frames for s in ordered),

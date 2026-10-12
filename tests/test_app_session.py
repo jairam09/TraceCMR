@@ -117,7 +117,7 @@ def test_model_contours_kept_apart_from_corrections(tmp_path, monkeypatch):
     ed = tapered_phantom(n_slices=6, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     img = np.stack([ed.image, ed.image], -1)
     monkeypatch.setattr(ac, "available", lambda: {"ucl": "ready"})
-    monkeypatch.setattr(ac, "run_pairs", lambda image, spacing, pairs, model="ucl":
+    monkeypatch.setattr(ac, "run_pairs", lambda image, spacing, pairs, model="ucl", unsure_out=None:
                         np.stack([ed.label[:, :, z] for z, t in pairs], axis=2))
     s = Session(image=img, label=np.zeros(img.shape, np.uint8), spacing=ed.spacing, subject_id="m")
     nz = img.shape[2]

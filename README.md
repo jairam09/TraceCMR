@@ -111,3 +111,5 @@ Parts of this project were developed with AI assistance. See [docs/ai_usage.md](
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The app bundles the [Inter](https://github.com/rsms/inter) typeface (Regular and Bold), © The Inter Project Authors, under the SIL Open Font License 1.1 ([src/tracecmr/app/resources/fonts/OFL.txt](src/tracecmr/app/resources/fonts/OFL.txt)).
