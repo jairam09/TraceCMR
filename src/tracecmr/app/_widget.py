@@ -2535,7 +2535,7 @@ class TraceCMRWidget(QWidget):
         ready = [i for i, k in enumerate(self._model_keys) if ac.available().get(k) == "ready"]
         if ready:
             self.cmb_model.setCurrentIndex(ready[0])
-        self.lbl_auto.setText("" if ready else "No model installed. See the README to download one.")
+        self.lbl_auto.setText("" if ready else "Auto-contouring is not set up on this computer yet. Contour by hand for now.")
 
     def autocontour_pairs(self) -> list[tuple[int, int]]:
         """Which (slice, frame) images Auto-contour does: the frame being viewed on every slice. When that
@@ -3535,7 +3535,7 @@ class TraceCMRWidget(QWidget):
             box = QMessageBox(self)
             box.setWindowTitle("Exported")
             box.setText(f"Everything for {s.subject_id} is in\n{path.parent}\n\n• {Path(out['workbook']).name}\n"
-                        f"• {out['images']} images in images\\\n"
+                        f"• {out['images']} images in images{os.sep}\n"
                         + (f"• its row in {Path(out['study']).name} ({Path(out['study']).parent.name})"
                            if out.get("study") else "• study table not updated (open in Excel?)"))
             opened = box.addButton("Open folder", QMessageBox.ButtonRole.ActionRole)

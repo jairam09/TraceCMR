@@ -107,12 +107,14 @@ $places = @(
     [Environment]::GetFolderPath('Desktop'),
     [Environment]::GetFolderPath('Programs')  # Start menu: where Windows looks up app IDs for the taskbar
 )
+# a .bat target opens a console window: start it minimised (7); the app itself (.exe) opens normally (1)
+$show = if ($Target -like '*.exe') { 1 } else { 7 }
 $ok = $true
 try {
     Add-Type -TypeDefinition $code -Language CSharp -ErrorAction Stop
     foreach ($dir in $places) {
         $lnk = Join-Path $dir 'TraceCMR.lnk'
-        [TraceCmrShortcut]::Save($lnk, $Target, $WorkDir, $Icon, $AppId, $Description, 7)  # 7: start minimised
+        [TraceCmrShortcut]::Save($lnk, $Target, $WorkDir, $Icon, $AppId, $Description, $show)
         Write-Output "shortcut with app ID: $lnk"
     }
 }
@@ -125,7 +127,7 @@ catch {
     $s.WorkingDirectory = $WorkDir
     $s.IconLocation = $Icon
     $s.Description = $Description
-    $s.WindowStyle = 7
+    $s.WindowStyle = $show
     $s.Save()
     Write-Output "plain shortcut: $($places[0])\TraceCMR.lnk"
 }

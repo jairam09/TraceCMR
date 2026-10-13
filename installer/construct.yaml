@@ -8,13 +8,13 @@
 # No model weights are included: each segmentation model keeps its own licence and is downloaded by the user.
 
 name: TraceCMR
-version: 0.3.1
+version: 0.3.2
 company: TraceCMR
 
 installer_type: exe  # [win]
 installer_type: pkg  # [osx]
-installer_filename: TraceCMR-0.3.1-Windows-x86_64.exe  # [win]
-installer_filename: TraceCMR-0.3.1-macOS.pkg  # [osx]
+installer_filename: TraceCMR-0.3.2-Windows-x86_64.exe  # [win]
+installer_filename: TraceCMR-0.3.2-macOS.pkg  # [osx]
 
 channels:
   - conda-forge

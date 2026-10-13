@@ -119,7 +119,7 @@ jobs:
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
           note notice "walkthrough output" "$(grep -E '^(OK|FAIL)|^\{' walk.txt 2>/dev/null | cut -c1-300 | tail -n 40)"
-          [ -f walk_first_try.txt ] && note notice "first try (default OpenGL)" "$(tail -c 2500 walk_first_try.txt)"
+          if [ -f walk_first_try.txt ]; then note notice "first try (default OpenGL)" "$(tail -c 2500 walk_first_try.txt)"; fi
           [ -f shots/summary.json ] || note error "walkthrough" "no summary: $(tail -c 3000 walk.txt 2>/dev/null)"
 
       - name: Push screenshots to branch walkthrough/${{ matrix.label }}

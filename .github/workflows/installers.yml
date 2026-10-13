@@ -54,6 +54,9 @@ jobs:
           for %%f in (installer\dist\*.exe) do start /wait "" "%%f" /InstallationType=JustMe /RegisterPython=0 /S /D=%RUNNER_TEMP%\TraceCMR
           type "%RUNNER_TEMP%\TraceCMR\install_log.txt"
           findstr /c:"INSTALL OK" "%RUNNER_TEMP%\TraceCMR\install_log.txt"
+          findstr /c:"SHORTCUTS OK" "%RUNNER_TEMP%\TraceCMR\install_log.txt"
+          if not exist "%USERPROFILE%\Desktop\TraceCMR.lnk" (echo no Desktop shortcut & exit /b 1)
+          if not exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\TraceCMR.lnk" (echo no Start menu shortcut & exit /b 1)
 
       - name: Check the installed app starts (Windows)
         if: runner.os == 'Windows'

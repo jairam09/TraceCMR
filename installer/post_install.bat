@@ -1,5 +1,6 @@
 @echo off
 rem Runs once, at the end of installation, inside the new TraceCMR folder (%PREFIX%).
+rem The installer runs this with a minimal PATH, so PowerShell is called by its full path.
 rem Installs TraceCMR and its packages from the bundled wheels (no internet needed), then makes shortcuts.
 set "LOG=%PREFIX%\install_log.txt"
 echo TraceCMR install %date% %time% > "%LOG%"
@@ -22,7 +23,7 @@ rmdir /s /q "%PREFIX%\wheels" >> "%LOG%" 2>&1
 del /q "%PREFIX%\wheels.zip" >> "%LOG%" 2>&1
 
 set "ICON=%PREFIX%\Lib\site-packages\tracecmr\app\resources\tracecmr.ico"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PREFIX%\make_shortcut.ps1" -Target "%PREFIX%\Scripts\tracecmr-app.exe" -WorkDir "%USERPROFILE%\Documents" -Icon "%ICON%" >> "%LOG%" 2>&1
+%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PREFIX%\make_shortcut.ps1" -Target "%PREFIX%\Scripts\tracecmr-app.exe" -WorkDir "%USERPROFILE%\Documents" -Icon "%ICON%" >> "%LOG%" 2>&1
 if errorlevel 1 (echo shortcut fallback used >> "%LOG%") else (echo SHORTCUTS OK >> "%LOG%")
 echo INSTALL OK >> "%LOG%"
 exit /b 0
