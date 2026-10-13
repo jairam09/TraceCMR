@@ -70,8 +70,9 @@ jobs:
           $secs = [int]((Get-Date) - $t).TotalSeconds
           $log = Get-Content "$env:USERPROFILE\TraceCMR\install_log.txt" -Raw
           Write-Output $log
-          $lnk = (Test-Path "$([Environment]::GetFolderPath('Desktop'))\TraceCMR.lnk")
-          Write-Output "::notice title=Windows install::$secs s; desktop shortcut: $lnk; $(($log -split "`n" | Select-String 'OK|DONE|FAIL') -join ' | ')"
+          $desk = [Environment]::GetFolderPath('Desktop'); $progs = [Environment]::GetFolderPath('Programs')
+          $lines = ($log -split "`n" | Where-Object { $_ -cmatch 'shortcut|INSTALL OK|PACKAGES OK|WARMUP|FAIL|failed|Error' }) -join ' | '
+          Write-Output "::notice title=Windows install::$secs s | Desktop $desk lnk: $(Test-Path "$desk\TraceCMR.lnk") | Start menu $progs lnk: $(Test-Path "$progs\TraceCMR.lnk") | $lines"
           if ($log -notmatch "INSTALL OK") { Write-Output "::error title=install::INSTALL OK not found"; exit 1 }
           "PY=$env:USERPROFILE\TraceCMR\python.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -92,6 +93,7 @@ jobs:
         id: walk
         continue-on-error: true
         run: |
+          set +e
           "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk.txt 2>&1; rc=$?
           cat walk.txt
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
@@ -103,7 +105,9 @@ jobs:
         env:
           QT_OPENGL: software
         run: |
+          set +e
           rm -rf shots
+          ls "$(dirname "$PY")/Lib/site-packages/PyQt6/Qt6/bin" | grep -i opengl
           "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk2.txt 2>&1; echo "rc=$?"
           cat walk2.txt
           mv walk.txt walk_first_try.txt; mv walk2.txt walk.txt
