@@ -7,9 +7,13 @@ echo "TraceCMR install $(date)" > "$LOG"
 
 "$PREFIX/bin/python" -c "import zipfile, sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
     "$PREFIX/wheels.zip" "$PREFIX/wheels" >> "$LOG" 2>&1 || { echo "UNZIP FAILED" >> "$LOG"; exit 1; }
-"$PREFIX/bin/python" -m pip install --no-index --find-links "$PREFIX/wheels" "tracecmr[app]" >> "$LOG" 2>&1 \
+# --no-compile: pre-compiling every package (about 12,000 files) was most of the install time. The warm-up import
+# below compiles just the modules TraceCMR actually loads, so the first launch stays quick.
+"$PREFIX/bin/python" -m pip install --no-index --no-compile --find-links "$PREFIX/wheels" "tracecmr[app]" >> "$LOG" 2>&1 \
     || { echo "PIP FAILED" >> "$LOG"; exit 1; }
-echo "PACKAGES OK" >> "$LOG"
+echo "PACKAGES OK $(date +%T)" >> "$LOG"
+QT_QPA_PLATFORM=offscreen "$PREFIX/bin/python" -c "import napari, tracecmr.app._widget, tracecmr.app.compare" >> "$LOG" 2>&1
+echo "WARMUP DONE $(date +%T)" >> "$LOG"
 rm -rf "$PREFIX/wheels" "$PREFIX/wheels.zip"
 
 # The installer may run as root; the app belongs to whoever is logged in at the screen.
@@ -41,6 +45,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 chown -R "$OWNER" "$APP" "$OWNER_HOME/Applications" 2>/dev/null
+# The installer may have run as root: hand the TraceCMR folder to the user so Python can cache compiled modules there.
+chown -R "$OWNER" "$PREFIX" 2>/dev/null
 echo "APP OK: $APP" >> "$LOG"
 echo "INSTALL OK" >> "$LOG"
 exit 0
