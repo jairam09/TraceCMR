@@ -71,8 +71,10 @@ jobs:
           $log = Get-Content "$env:USERPROFILE\TraceCMR\install_log.txt" -Raw
           Write-Output $log
           $desk = [Environment]::GetFolderPath('Desktop'); $progs = [Environment]::GetFolderPath('Programs')
-          $lines = ($log -split "`n" | Where-Object { $_ -cmatch 'shortcut|INSTALL OK|PACKAGES OK|WARMUP|FAIL|failed|Error' }) -join ' | '
+          $lines = ($log -replace "`r","" -split "`n" | Where-Object { $_ -cmatch 'shortcut|INSTALL OK|PACKAGES OK|WARMUP|FAIL|failed|Error' }) -join ' | '
           Write-Output "::notice title=Windows install::$secs s | Desktop $desk lnk: $(Test-Path "$desk\TraceCMR.lnk") | Start menu $progs lnk: $(Test-Path "$progs\TraceCMR.lnk") | $lines"
+          Copy-Item "$env:USERPROFILE\TraceCMR\install_log.txt" install_log.txt
+          Get-ChildItem "$env:USERPROFILE\TraceCMR" | Select-Object Name, Length | Out-File prefix_listing.txt
           if ($log -notmatch "INSTALL OK") { Write-Output "::error title=install::INSTALL OK not found"; exit 1 }
           "PY=$env:USERPROFILE\TraceCMR\python.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -123,7 +125,7 @@ jobs:
       - name: Push screenshots to branch walkthrough/${{ matrix.label }}
         if: always()
         run: |
-          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt out/ 2>/dev/null; true
+          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt install_log.txt prefix_listing.txt out/ 2>/dev/null; true
           cd out
           git init -q -b "walkthrough/${{ matrix.label }}"
           git config user.name "walkthrough bot"; git config user.email "actions@github.com"
