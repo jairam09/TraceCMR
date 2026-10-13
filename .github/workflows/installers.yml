@@ -67,13 +67,24 @@ jobs:
       - name: Install it (macOS)
         if: runner.os == 'macOS'
         run: |
+          # report what happened as run annotations (readable without downloading logs)
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
           pkg=$(ls installer/dist/*.pkg)
-          installer -pkg "$pkg" -target CurrentUserHomeDirectory || sudo installer -pkg "$pkg" -target /
-          prefix=$(ls -d "$HOME/TraceCMR" /Applications/TraceCMR "$HOME/Applications/TraceCMR" 2>/dev/null | head -1)
-          echo "installed at: $prefix"
+          note notice "pkg" "$(ls -la installer/dist)"
+          set +e
+          installer -pkg "$pkg" -target CurrentUserHomeDirectory > inst.txt 2>&1; rc=$?
+          if [ $rc -ne 0 ]; then echo "--- retry as root" >> inst.txt; sudo installer -verbose -pkg "$pkg" -target / >> inst.txt 2>&1; rc=$?; fi
+          note notice "installer exit $rc" "$(tail -c 2500 inst.txt)"
+          prefix=""
+          for d in "$HOME/TraceCMR" /Applications/TraceCMR /opt/TraceCMR /var/root/TraceCMR; do
+            if [ -d "$d" ]; then prefix="$d"; break; fi
+          done
+          [ -n "$prefix" ] || prefix=$(sudo find /Users /Applications /opt /private/var/root -maxdepth 3 -type d -name TraceCMR 2>/dev/null | head -1)
+          note notice "prefix" "${prefix:-not found}"
+          if [ -n "$prefix" ]; then note notice "install_log.txt" "$(sudo tail -c 3000 "$prefix/install_log.txt" 2>&1)"; fi
+          note notice "system install.log" "$(sudo grep -iE 'postinstall|TraceCMR|error' /var/log/install.log 2>/dev/null | tail -n 40)"
           echo "PREFIX=$prefix" >> "$GITHUB_ENV"
-          cat "$prefix/install_log.txt"
-          grep -q "INSTALL OK" "$prefix/install_log.txt"
+          sudo grep -q "INSTALL OK" "$prefix/install_log.txt" || { note error "install" "INSTALL OK not found"; exit 1; }
 
       - name: Check the installed app starts (macOS)
         if: runner.os == 'macOS'
