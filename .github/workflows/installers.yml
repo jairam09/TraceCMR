@@ -1,0 +1,91 @@
+# Builds the TraceCMR installers on real Windows and macOS machines, installs each one, and checks that the
+# installed app starts. The installers are attached to the run as downloadable artifacts.
+#
+# Run it from GitHub: Actions -> "installers" -> "Run workflow". It also runs on version tags (v0.3.0, ...).
+
+name: installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest  # Apple silicon
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          python-version: "3.12"
+          activate-environment: build
+
+      - name: Build tools
+        run: conda install -y -c conda-forge constructor
+
+      - name: TraceCMR and its packages as wheels
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip wheel --wheel-dir build/wheels ".[app]"
+          ls build/wheels | head -80
+          python -c "import shutil; shutil.make_archive('installer/wheels', 'zip', 'build/wheels')"
+
+      - name: Build the installer
+        working-directory: installer
+        run: constructor . --output-dir dist
+
+      - name: Install it silently (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for %%f in (installer\dist\*.exe) do start /wait "" "%%f" /InstallationType=JustMe /RegisterPython=0 /S /D=%RUNNER_TEMP%\TraceCMR
+          type "%RUNNER_TEMP%\TraceCMR\install_log.txt"
+          findstr /c:"INSTALL OK" "%RUNNER_TEMP%\TraceCMR\install_log.txt"
+
+      - name: Check the installed app starts (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "%RUNNER_TEMP%\TraceCMR\python.exe" -c "import tracecmr, tracecmr.drift, tracecmr.app._widget, napari; print('imports OK', tracecmr.__file__)"
+          if not exist "%RUNNER_TEMP%\TraceCMR\Scripts\tracecmr-app.exe" (echo no app launcher & exit /b 1)
+
+      - name: Install it (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pkg=$(ls installer/dist/*.pkg)
+          installer -pkg "$pkg" -target CurrentUserHomeDirectory || sudo installer -pkg "$pkg" -target /
+          prefix=$(ls -d "$HOME/TraceCMR" /Applications/TraceCMR "$HOME/Applications/TraceCMR" 2>/dev/null | head -1)
+          echo "installed at: $prefix"
+          echo "PREFIX=$prefix" >> "$GITHUB_ENV"
+          cat "$prefix/install_log.txt"
+          grep -q "INSTALL OK" "$prefix/install_log.txt"
+
+      - name: Check the installed app starts (macOS)
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "$PREFIX/bin/python" -c "import tracecmr, tracecmr.drift, tracecmr.app._widget, napari; print('imports OK', tracecmr.__file__)"
+          test -x "$PREFIX/bin/tracecmr-app"
+          ls -la "$HOME/Applications/TraceCMR.app/Contents/MacOS" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TraceCMR-${{ matrix.label }}
+          path: installer/dist/*
+          if-no-files-found: error
