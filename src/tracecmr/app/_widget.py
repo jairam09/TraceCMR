@@ -1657,6 +1657,7 @@ class TraceCMRWidget(QWidget):
         self._table_timer.start(0)  # results straight away when the mouse already has contours
         self.roi.session_loaded()  # its saved regions of interest
         self.autosave.baseline()
+        QTimer.singleShot(0, self._prewarm_wall)  # not while the first click on Wall is waiting
         QTimer.singleShot(250, self._offer_recovery)  # once the window has settled on the new mouse
         if message:
             self.lbl_order.setText(message)
@@ -2317,6 +2318,15 @@ class TraceCMRWidget(QWidget):
         self._sync_labels()
         msg = self.session.auto_ed_es()
         self._phases_changed()
+        if self.session.separate_slices:  # how much picking ED/ES per slice changed the result
+            from ..drift import phase_timing
+
+            try:
+                timing = phase_timing(self.session)
+                if len(timing.slices) >= 2:
+                    msg = f"{msg} {timing.summary()}"
+            except Exception:
+                pass
         self.lbl_order.setText(msg)
 
     # ---------- slice order ----------
@@ -2994,10 +3004,28 @@ class TraceCMRWidget(QWidget):
         self.lbl_notes.setStyleSheet(NOTE_STYLE)
         self.lbl_notes.setText("\n".join(f"• {n}" for n in all_notes))
 
+    def _bullseye_key(self, wall, w: int, h: int):
+        """What the bullseyes depend on: the numbers, the layout and the panel size (to the nearest 8 px, so
+        the odd pixel of difference between a hidden and a shown page is not a reason to redraw)."""
+        if wall is None:
+            return None
+        parts = [str(wall.ed.reference), str(sorted((lv, np.asarray(r.segments_mm).tobytes())
+                                                    for lv, r in wall.ed.levels.items())),
+                 str(sorted((lv, np.asarray(v).tobytes()) for lv, v in wall.thickening_pct.items())),
+                 str(self.THICKENING_RANGE)]
+        return (w // 8, h // 8, hash("".join(parts)))
+
     def _draw_bullseyes(self, event=None) -> None:
         """The two bullseyes, laid out for the panel's current size: square, side by side, colour bar underneath,
-        numbers sized to fit (hidden when there's no room). Redrawn when the panel is resized."""
+        numbers sized to fit (hidden when there's no room). Redrawn when the panel is resized.
+
+        Building them costs about a fifth of a second (two polar plots, 32 segments), so they are rebuilt only
+        when the numbers or the size actually change: picking the Wall tab then shows what is already drawn."""
         wall = getattr(self, "_bullseye_wall", None)
+        key = self._bullseye_key(wall, self.canvas.width() or 400, self.canvas.height() or 230)
+        if key is not None and key == getattr(self, "_bullseye_drawn", None) and self.fig.axes:
+            return
+        self._bullseye_drawn = key
         self.fig.clear()
         if wall is not None:
             w, h = self.canvas.width() or 400, self.canvas.height() or 230
@@ -3363,14 +3391,7 @@ class TraceCMRWidget(QWidget):
                         " Magenta: septum (from the RV); short lines: RV insertion points.")
             elif blood.any():
                 msg += " No septum here (no RV): Wall menu → Set the septum."
-            if layer is None:
-                prev = self.viewer.layers.selection.active  # adding a layer selects it: give the selection back
-                layer = self.viewer.add_shapes(name=name, ndim=4, scale=(1, dz, dy, dx))
-                if prev is not None:
-                    self.viewer.layers.selection.active = prev
-                if self.editor is not None and self.editor.points is not None:  # keep the points on top
-                    i = self.viewer.layers.index(layer)
-                    self.viewer.layers.move(i, self.viewer.layers.index(self.editor.points))
+            layer = self._wall_layer()
             layer.data = []
             if lines:
                 widths = [0.6] * (len(lines) - len(widths)) + widths  # wall lines thin, septum markers thicker
@@ -3380,6 +3401,34 @@ class TraceCMRWidget(QWidget):
             self.lbl_auto.setText(msg)
         finally:
             self._drawing_wall = False
+
+    def _wall_layer(self):
+        """The layer the wall lines are drawn into, created the first time it is needed. Making it costs about
+        a quarter of a second, so `_prewarm_wall` does it quietly after a mouse is opened rather than leaving
+        it for the first click on Wall."""
+        name = "wall thickness"
+        if name in self.viewer.layers:
+            return self.viewer.layers[name]
+        dx, dy, dz = self.session.spacing
+        prev = self.viewer.layers.selection.active  # adding a layer selects it: give the selection back
+        layer = self.viewer.add_shapes(name=name, ndim=4, scale=(1, dz, dy, dx))
+        layer.visible = False
+        layer.editable = False
+        if prev is not None:
+            self.viewer.layers.selection.active = prev
+        if self.editor is not None and self.editor.points is not None:  # keep the points on top
+            i = self.viewer.layers.index(layer)
+            self.viewer.layers.move(i, self.viewer.layers.index(self.editor.points))
+        return layer
+
+    def _prewarm_wall(self) -> None:
+        """Get the slow one-off work for the Wall tab out of the way while the mouse is being opened."""
+        if self.session is None or not self._has_window():
+            return
+        try:
+            self._wall_layer()
+        except Exception:  # never let this stop a mouse from opening
+            pass
 
     def show_raw(self, on: bool) -> None:
         """Hide every contour (on) to look at the raw image, or bring them back. Nothing is deleted."""
@@ -3446,6 +3495,11 @@ class TraceCMRWidget(QWidget):
             out["workbook"] = report.write_mouse(path.parent / f"{stem}_TraceCMR_results.xlsx", rep)
             if s.rois:
                 out["rois"] = self.roi.export_csv(path.parent / f"{stem}_ROIs.csv")
+            from ..drift import phase_timing, write_csv as write_timing
+
+            timing = phase_timing(s)
+            if len(timing.slices) >= 2:  # contoured on enough frames to compare global and per-slice ED/ES
+                out["timing"] = write_timing(timing, path.parent / f"{stem}_ED_ES_timing.csv", s.subject_id)
             img_dir = self._images_dir(path)
             img_dir.mkdir(parents=True, exist_ok=True)
             if wall is not None:

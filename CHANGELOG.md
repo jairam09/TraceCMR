@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- ED/ES timing across slices (`tracecmr.drift`): each slice's own end-diastole and end-systole against the global pair, EDV/ESV/EF computed both ways on the same contours, and whether the per-slice ES trends with acquisition order (drifting heart rate) or just scatters (contour noise). Ties at the flat top and bottom of a slice's curve go to the global frame, so a slice is only called shifted when its data says so. With Per-slice ED/ES on, Detect reports the spread and the EF difference; Export all writes `<mouse>_ED_ES_timing.csv` when there are enough contoured frames. Reads timing parameters from Bruker ParaVision method/acqp/visu_pars files (field names not yet checked against real cine data).
+- Installers for Windows (.exe) and macOS (.pkg, Apple silicon), built with conda constructor: each carries its own Python and installs TraceCMR offline from bundled wheels. Windows gets Desktop and Start-menu shortcuts and an uninstaller; macOS gets TraceCMR.app in Applications. No model weights included (each keeps its own licence); TensorFlow for auto-contour is an optional one-click step. A GitHub Actions workflow (`installers`) builds both on real Windows and Mac machines, installs each, checks the app starts, and attaches the installers to the run.
+
 ### Changed
+- Switching to the Wall tab is instant. The bullseyes were rebuilt from scratch every time the tab was picked (about 0.2 s); they are now rebuilt only when the numbers or the panel size change. The wall-lines layer is also created while the mouse is opening instead of on the first click on Wall.
 - ED | ES bar: the mouse and slice name sits in the view's corner (it was cut off on a narrow window), the controls are shorter, and the crop menu's list no longer draws a stray outline around the chosen item.
 - ED | ES: Lock crop. Set the window you want on one slice (crop, zoom and pan, e.g. on the slice with the widest ventricle), press Lock crop, and every slice is shown in exactly that window, in the view and in the saved figures, until you unlock it.
 - ED | ES crop has three settings: this slice (tight around the heart on this slice), same for all slices (one crop around the heart on every slice, set by the widest one, so every slice is shown at the same scale and place, in the view and in the All slices figure) and whole image.

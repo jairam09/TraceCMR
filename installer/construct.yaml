@@ -1,0 +1,45 @@
+# TraceCMR installers for Windows (.exe) and macOS (.pkg), built with conda "constructor".
+# See installer/README.md. Built automatically by .github/workflows/installers.yml, or locally on Windows with
+# installer/build_installer.bat.
+#
+# Each installer carries its own Python (from conda-forge) plus wheels.zip: TraceCMR and every package it needs,
+# built on the same platform with the same Python version. The post-install script installs those wheels with
+# pip, offline, so users get the same package set that runs TraceCMR in development (PyQt6, napari).
+# No model weights are included: each segmentation model keeps its own licence and is downloaded by the user.
+
+name: TraceCMR
+version: 0.3.0
+company: TraceCMR
+
+installer_type: exe  # [win]
+installer_type: pkg  # [osx]
+installer_filename: TraceCMR-0.3.0-Windows-x86_64.exe  # [win]
+installer_filename: TraceCMR-0.3.0-macOS.pkg  # [osx]
+
+channels:
+  - conda-forge
+specs:
+  - python 3.12.*   # must match the Python that built wheels.zip
+  - pip
+
+# a self-contained app, not a Python distribution: leave the user's PATH, shell and other Pythons alone
+initialize_conda: false
+initialize_by_default: false
+register_python: false  # [win]
+register_python_default: false  # [win]
+default_prefix: '%USERPROFILE%\TraceCMR'  # [win]
+
+license_file: ../LICENSE
+icon_image: ../src/tracecmr/app/resources/tracecmr.ico  # [win]
+
+extra_files:
+  - wheels.zip
+  - ../scripts/windows/make_shortcut.ps1: make_shortcut.ps1  # [win]
+  - set_up_auto_contour.bat  # [win]
+  - set_up_auto_contour.command  # [osx]
+  - tracecmr.icns  # [osx]
+
+post_install: post_install.bat  # [win]
+post_install: post_install.sh  # [osx]
+post_install_desc: "Install TraceCMR and add shortcuts"
+pre_uninstall: pre_uninstall.bat  # [win]

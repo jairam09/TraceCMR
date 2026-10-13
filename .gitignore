@@ -28,3 +28,10 @@ env/
 
 # Analysis outputs (regenerate from data)
 results/
+
+# installer build outputs
+installer/build/
+installer/dist/
+installer/wheels.zip
+installer/build_log.txt
+installer/build_wheels/

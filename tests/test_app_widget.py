@@ -2015,3 +2015,42 @@ def test_ed_es_lock_crop_keeps_one_window_on_every_slice(qtbot):
         assert c.opts()["crop"] is True
     finally:
         viewer.close()
+
+
+def test_wall_tab_is_ready_before_it_is_opened(qtbot):
+    """The slow parts of the Wall tab happen while the mouse is opening, not on the first click."""
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel._prewarm_wall()  # normally a moment after loading
+        assert "wall thickness" in viewer.layers and not viewer.layers["wall thickness"].visible
+        panel.compute()
+        drawn = panel._bullseye_drawn
+        assert drawn is not None
+        panel._draw_bullseyes()  # same numbers, same size: nothing is rebuilt
+        assert panel._bullseye_drawn is drawn
+        axes = list(panel.fig.axes)
+        panel.results_tabs.show("wall")
+        assert list(panel.fig.axes) == axes  # picking the tab shows what is already drawn
+        panel._bullseye_wall = None  # new numbers: it does redraw
+        panel._draw_bullseyes()
+        assert panel._bullseye_drawn is None
+    finally:
+        viewer.close()
+
+
+def test_detect_reports_ed_es_timing_per_slice(qtbot, tmp_path):
+    from tests.test_drift import _cine
+
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        s = _cine(drift_frames=4)
+        s.separate_slices = True
+        panel.load_session(s)
+        panel._auto_frames()
+        text = panel.lbl_order.text()
+        assert "ES varies by" in text and "per slice" in text
+    finally:
+        viewer.close()
