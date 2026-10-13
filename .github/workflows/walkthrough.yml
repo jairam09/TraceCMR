@@ -1,0 +1,127 @@
+# A beta tester's first session on a clean Windows PC and a clean Mac, start to finish:
+# download the installer from the public Google Drive link (the same link as the beta page's Download button),
+# install it the way a user does, then open TraceCMR and run scripts/walkthrough.py: the first-run tour, opening a
+# test mouse (also downloaded from Drive), results, per-slice ED/ES Detect, ED | ES, saving a figure, the Wall tab,
+# Export all, Save. Screenshots of every stage are pushed to the branch walkthrough/<os> for review.
+#
+# Run it from GitHub: Actions -> "walkthrough" -> "Run workflow" (paste new Drive file IDs after re-uploading).
+
+name: walkthrough
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows_id:
+        description: Drive file ID of the Windows installer
+        default: 1rpYihznncmLtifB0-mUTj7Vulu8SiwJR
+      mac_id:
+        description: Drive file ID of the macOS installer
+        default: 1uTSyuDHCRBPl0MAF6H8FGhWVK2vEXVf5
+      mouse_id:
+        description: Drive file ID of the test mouse (Mouse1.h5)
+        default: 1JcuvxNT-8VfBdM8WBT-mquSCxJMGJ-9-
+
+permissions:
+  contents: write
+
+jobs:
+  tester:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            ext: exe
+          - os: macos-latest
+            label: macos
+            ext: pkg
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download from Google Drive, like a tester
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          id=${{ matrix.label == 'windows' && inputs.windows_id || inputs.mac_id }}
+          # 1. the page's link: for a large file Drive answers with its "can't scan for viruses" page
+          curl -sSL -o first.html "https://drive.google.com/uc?export=download&id=$id"
+          note notice "page link answers with" "$(file -b first.html 2>/dev/null); $(grep -o '<title>[^<]*' first.html | head -1); $(grep -o 'Download anyway' first.html | head -1)"
+          # 2. what "Download anyway" fetches
+          start=$(date +%s)
+          curl -sSL -o "TraceCMR-installer.${{ matrix.ext }}" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+          size=$(wc -c < "TraceCMR-installer.${{ matrix.ext }}")
+          note notice "installer download" "$size bytes in $(( $(date +%s) - start )) s; $(head -c 4 TraceCMR-installer.${{ matrix.ext }} | od -An -c | tr -s " ")"
+          [ "$size" -gt 200000000 ] || { note error "download" "installer too small: $size bytes"; exit 1; }
+          curl -sSL -o Mouse1.h5 "https://drive.usercontent.google.com/download?id=${{ inputs.mouse_id }}&export=download&confirm=t"
+          msize=$(wc -c < Mouse1.h5)
+          note notice "test mouse download" "$msize bytes"
+          [ "$msize" -gt 10000000 ] || { note error "download" "Mouse1.h5 too small"; exit 1; }
+
+      - name: Install (Windows, as a user would)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $t = Get-Date
+          Start-Process -Wait -FilePath ".\TraceCMR-installer.exe" -ArgumentList "/InstallationType=JustMe","/RegisterPython=0","/S","/D=$env:USERPROFILE\TraceCMR"
+          $secs = [int]((Get-Date) - $t).TotalSeconds
+          $log = Get-Content "$env:USERPROFILE\TraceCMR\install_log.txt" -Raw
+          Write-Output $log
+          $lnk = (Test-Path "$([Environment]::GetFolderPath('Desktop'))\TraceCMR.lnk")
+          Write-Output "::notice title=Windows install::$secs s; desktop shortcut: $lnk; $(($log -split "`n" | Select-String 'OK|DONE|FAIL') -join ' | ')"
+          if ($log -notmatch "INSTALL OK") { Write-Output "::error title=install::INSTALL OK not found"; exit 1 }
+          "PY=$env:USERPROFILE\TraceCMR\python.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install (macOS, as a user would)
+        if: runner.os == 'macOS'
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          start=$(date +%s)
+          installer -pkg TraceCMR-installer.pkg -target CurrentUserHomeDirectory > inst.txt 2>&1 || sudo installer -pkg TraceCMR-installer.pkg -target / >> inst.txt 2>&1
+          secs=$(( $(date +%s) - start ))
+          prefix=""
+          for d in "$HOME/TraceCMR" /Applications/TraceCMR /opt/TraceCMR /var/root/TraceCMR; do [ -d "$d" ] && { prefix="$d"; break; }; done
+          note notice "macOS install" "$secs s; prefix ${prefix:-not found}; app: $(ls -d "$HOME/Applications/TraceCMR.app" 2>&1); owner: $(stat -f %Su "$prefix" 2>&1); $(sudo grep -E 'OK|DONE|FAIL' "$prefix/install_log.txt" 2>&1 | tr '\n' ' ')"
+          sudo grep -q "INSTALL OK" "$prefix/install_log.txt" || { note error "install" "INSTALL OK not found: $(tail -c 1500 inst.txt)"; exit 1; }
+          echo "PY=$prefix/bin/python" >> "$GITHUB_ENV"
+
+      - name: First session (walkthrough)
+        id: walk
+        continue-on-error: true
+        run: |
+          "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk.txt 2>&1; rc=$?
+          cat walk.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: First session again with software OpenGL (Windows, if the first try failed)
+        if: runner.os == 'Windows' && steps.walk.outputs.rc != '0'
+        continue-on-error: true
+        env:
+          QT_OPENGL: software
+        run: |
+          rm -rf shots
+          "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk2.txt 2>&1; echo "rc=$?"
+          cat walk2.txt
+          mv walk.txt walk_first_try.txt; mv walk2.txt walk.txt
+
+      - name: Report
+        if: always()
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          note notice "walkthrough output" "$(grep -E '^(OK|FAIL)|^\{' walk.txt 2>/dev/null | cut -c1-300 | tail -n 40)"
+          [ -f walk_first_try.txt ] && note notice "first try (default OpenGL)" "$(tail -c 2500 walk_first_try.txt)"
+          [ -f shots/summary.json ] || note error "walkthrough" "no summary: $(tail -c 3000 walk.txt 2>/dev/null)"
+
+      - name: Push screenshots to branch walkthrough/${{ matrix.label }}
+        if: always()
+        run: |
+          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt out/ 2>/dev/null; true
+          cd out
+          git init -q -b "walkthrough/${{ matrix.label }}"
+          git config user.name "walkthrough bot"; git config user.email "actions@github.com"
+          git add -A && git commit -qm "Walkthrough ${{ matrix.label }} $(date -u +%FT%TZ)" || exit 0
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/walkthrough/${{ matrix.label }}"
