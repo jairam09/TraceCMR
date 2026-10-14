@@ -30,7 +30,7 @@ For all 130 mice: `git checkout HEAD -- Data`. Their model weights (`ModelWeight
 
 **Conventions.** Trabeculae and papillary muscles are included in the myocardium. In Mouse1, slice 0 is the apical cap (myocardium only) and the top slices are unlabeled.
 
-**License note.** The JCMR paper says the data is CC BY 4.0 (free use with attribution). The GitHub repository carries a GPL-3.0 license, which covers at least their code. Practical rule: use the data with citation; do **not** copy their code into this MIT-licensed project (that would require relicensing under GPL). Run their model as a separate tool. If unsure, ask the authors.
+**License note.** The JCMR article itself is CC BY 4.0, but it names no separate licence for the data, code or weights; they live in the authors' GitHub repository, which carries GPL-3.0. Either way they are shared openly for reuse with credit. Practical rule: cite the paper wherever the data or model is used; redistribute data files (e.g. the test mice for testers) with credit and the repository's LICENSE; do **not** copy their code into this MIT-licensed project. The app downloads their model from their repository on the user's request (`model_setup.py`), so TraceCMR never ships it. Corresponding author: Jennifer Steeden (UCL).
 
 ## Label conventions
 
