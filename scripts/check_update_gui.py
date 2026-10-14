@@ -40,6 +40,21 @@ def fail(msg: str) -> None:
     os._exit(1)
 
 
+def answer_questions(app) -> None:
+    """Any question box that still appears gets its default answer (noted), so nothing waits for a click."""
+    from qtpy.QtCore import QTimer
+    from qtpy.QtWidgets import QMessageBox
+
+    def check():
+        box = app.activeModalWidget()
+        if isinstance(box, QMessageBox):
+            steps.append({"name": "question_answered", "ok": True, "note": box.text()[:300]})
+            (box.defaultButton() or box.buttons()[-1]).click()
+        QTimer.singleShot(500, check)
+
+    QTimer.singleShot(500, check)
+
+
 def driver(viewer) -> None:
     from qtpy.QtWidgets import QApplication
 
@@ -74,7 +89,15 @@ def driver(viewer) -> None:
     steps.append({"name": "started", "ok": True, "note": f"TraceCMR {__version__}, updates from {MANIFEST.name}"})
     from tracecmr.app.session import Session
 
-    panel.load_session(Session.from_ucl(MOUSE))
+    # a fresh copy of the mouse: an earlier session's recovery file for it would open a "Recover unsaved
+    # changes?" question, and this test is about the update card
+    import shutil
+    import tempfile
+
+    fresh = Path(tempfile.mkdtemp(prefix="update_gui_")) / MOUSE.name
+    shutil.copyfile(MOUSE, fresh)
+    answer_questions(app)
+    panel.load_session(Session.from_ucl(fresh))
     pump(1.0)
     steps.append({"name": "mouse_open", "ok": True, "note": panel.session.subject_id})
 
@@ -119,7 +142,14 @@ def main() -> None:
 
     def watchdog():
         time.sleep(600)
-        fail("timed out after 10 minutes")
+        try:
+            from qtpy.QtWidgets import QApplication
+
+            modal = QApplication.instance().activeModalWidget()
+            what = f"; open dialog: {type(modal).__name__} {getattr(modal, 'text', lambda: '')()!r}" if modal else ""
+        except Exception:
+            what = ""
+        fail("timed out after 10 minutes" + what)
 
     threading.Thread(target=watchdog, daemon=True).start()
     launch.main([])
