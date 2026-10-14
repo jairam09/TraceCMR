@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracecmr"
-version = "0.3.4"
+version = "0.3.5"
 description = "TraceCMR: open-source analysis for mouse cardiac MRI (volumes, regional wall thickness, LGE scar)"
 readme = "README.md"
 license = "MIT"

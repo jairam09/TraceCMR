@@ -1,9 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.5] - 2026-10-14
 
-- Updates: the helper only counts an update as installed when both the code and the package information report the new version (a wheel where they disagree is rolled back). The release workflow refuses such a wheel too.
-- When a release needs the full installer, the update card says to uninstall the current version first: the installers don't install over an existing copy (checked on Windows and Mac). Results and settings are kept.
+- Updates double-check that the new version installed completely before calling it done; otherwise they put the previous version back.
+- If a future version needs the full installer, TraceCMR now says to uninstall the current version first (the installers don't install over an existing copy). Results and settings are kept.
 
 ## [0.3.4] - 2026-10-14
 

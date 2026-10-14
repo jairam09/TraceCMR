@@ -9,7 +9,7 @@
 # and TensorFlow on request (Auto LV -> Set up now; tracecmr/model_setup.py).
 
 name: TraceCMR
-version: 0.3.4
+version: 0.3.5
 company: TraceCMR
 
 installer_type: exe  # [win]
