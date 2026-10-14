@@ -9,12 +9,18 @@ echo "TraceCMR install $(date)" > "$LOG"
     "$PREFIX/wheels.zip" "$PREFIX/wheels" >> "$LOG" 2>&1 || { echo "UNZIP FAILED" >> "$LOG"; exit 1; }
 # --no-compile: pre-compiling every package (about 12,000 files) was most of the install time. The warm-up import
 # below compiles just the modules TraceCMR actually loads, so the first launch stays quick.
-"$PREFIX/bin/python" -m pip install --no-index --no-compile --find-links "$PREFIX/wheels" "tracecmr[app]" >> "$LOG" 2>&1 \
+"$PREFIX/bin/python" -m pip install --no-index --no-compile --find-links "$PREFIX/wheels" "tracecmr[app,auto]" >> "$LOG" 2>&1 \
     || { echo "PIP FAILED" >> "$LOG"; exit 1; }
 echo "PACKAGES OK $(date +%T)" >> "$LOG"
-QT_QPA_PLATFORM=offscreen "$PREFIX/bin/python" -c "import napari, tracecmr.app._widget, tracecmr.app.compare" >> "$LOG" 2>&1
+QT_QPA_PLATFORM=offscreen "$PREFIX/bin/python" -c "import napari, tracecmr.app._widget, tracecmr.app.compare, onnxruntime" >> "$LOG" 2>&1
 echo "WARMUP DONE $(date +%T)" >> "$LOG"
 rm -rf "$PREFIX/wheels" "$PREFIX/wheels.zip"
+
+# Auto LV: UCL's model (with the authors' licence) goes in models/, where TraceCMR looks first; then run it once
+mkdir -p "$PREFIX/models"
+mv -f "$PREFIX/ucl_seg459.onnx" "$PREFIX/UCL-LICENSE.txt" "$PREFIX/models/" >> "$LOG" 2>&1
+"$PREFIX/bin/python" -c "import sys, numpy as np, onnxruntime as ort; s = ort.InferenceSession(sys.argv[1], providers=['CPUExecutionProvider']); x = np.zeros((1, 256, 256, 1), np.float32); print('AUTO LV OK', ort.__version__, s.run(None, {s.get_inputs()[0].name: x})[0].shape)" \
+    "$PREFIX/models/ucl_seg459.onnx" >> "$LOG" 2>&1 || echo "AUTO LV CHECK FAILED: the app will offer the one-click setup" >> "$LOG"
 
 # The installer may run as root; the app belongs to whoever is logged in at the screen.
 OWNER="$(stat -f %Su /dev/console 2>/dev/null || id -un)"

@@ -5,8 +5,10 @@
 # Each installer carries its own Python (from conda-forge) plus wheels.zip: TraceCMR and every package it needs,
 # built on the same platform with the same Python version. The post-install script installs those wheels with
 # pip, offline, so users get the same package set that runs TraceCMR in development (PyQt6, napari).
-# No model weights are included: each segmentation model keeps its own licence. The app downloads UCL's model
-# and TensorFlow on request (Auto LV -> Set up now; tracecmr/model_setup.py).
+# Auto LV works out of the box: the installer includes UCL's published model (Shah et al., JCMR 2026), converted
+# unchanged to ONNX (scripts/convert_ucl_onnx.py), with the authors' licence (GPL-3.0) beside it, and ONNX Runtime
+# to run it. The workflow fetches both files from TraceCMR's ucl-model-1 release and checks them against
+# src/tracecmr/ucl_model.json (scripts/fetch_ucl_model.py); post_install moves them into <TraceCMR>/models.
 
 name: TraceCMR
 version: 0.3.5
@@ -36,6 +38,8 @@ icon_image: ../src/tracecmr/app/resources/tracecmr.ico  # [win]
 
 extra_files:
   - wheels.zip
+  - ucl_seg459.onnx
+  - UCL-LICENSE.txt
   - ../scripts/windows/make_shortcut.ps1: make_shortcut.ps1  # [win]
   - tracecmr.icns  # [osx]
 

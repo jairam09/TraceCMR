@@ -1,7 +1,7 @@
 # A beta tester's first session on a clean Windows PC and a clean Mac, start to finish: get the installer, install
 # it the way a user does, then open TraceCMR and run scripts/walkthrough.py: the first-run tour, opening a test mouse
 # (downloaded from Drive), results, per-slice ED/ES Detect, ED | ES, saving a figure, the Wall tab, Export all,
-# Save, then Auto LV's one-time setup and a run. Then patch updates: through the window on the Mac (the card appears,
+# Save, then Auto LV (ready out of the box from 0.3.5) and a run. Then patch updates: through the window on the Mac (the card appears,
 # Update, Restart now, TraceCMR reopens on the new version), and headless on both (a broken patch is rolled back,
 # a good one installs, one that needs new packages is refused). Screenshots go to the branch walkthrough/<os>.
 #
@@ -155,19 +155,21 @@ jobs:
         continue-on-error: ${{ matrix.label == 'windows' }}
         run: |
           set +e
+          # installers built from this code include the model: Auto LV must work without any setup
+          export TRACECMR_WALK_EXPECT_READY=${{ (inputs.this_run || inputs.from_run != '') && '1' || '' }}
           "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk.txt 2>&1; rc=$?
           cat walk.txt
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit $rc
 
-      - name: Auto-contour setup and accuracy (headless, as the app does it)
+      - name: Auto LV out of the box, its accuracy, and the one-click setup older installs get (headless)
         id: auto
         if: always() && env.PY != ''
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
           set +e
           start=$(date +%s)
-          "$PY" scripts/check_autocontour.py Mouse1.h5 autocontour.json > auto.txt 2>&1; rc=$?
+          "$PY" scripts/check_autocontour.py Mouse1.h5 autocontour.json ${{ (inputs.this_run || inputs.from_run != '') && '--expect-bundled' || '' }} > auto.txt 2>&1; rc=$?
           cat auto.txt
           note notice "auto-contour (${{ matrix.label }}), $(( $(date +%s) - start )) s, exit $rc" "$(grep -v '^ *\"steps\"' auto.txt | tail -n 30 | cut -c1-200)"
           exit $rc

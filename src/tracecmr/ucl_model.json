@@ -1,0 +1,8 @@
+{
+  "file": "ucl_seg459.onnx",
+  "url": "https://github.com/jairam09/TraceCMR/releases/download/ucl-model-1/ucl_seg459.onnx",
+  "size": 18931904,
+  "sha256": "7afe39b3870c5ae66cd94103b7b189cdc8153e86c88b1481cb074414bb4f908a",
+  "license_url": "https://github.com/jairam09/TraceCMR/releases/download/ucl-model-1/UCL-LICENSE.txt",
+  "source": "UCL's SEG459.h5 (Shah et al., J Cardiovasc Magn Reson 2026), converted unchanged by scripts/convert_ucl_onnx.py (release ucl-model-1); GPL-3.0"
+}

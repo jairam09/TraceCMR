@@ -2125,14 +2125,15 @@ def test_auto_lv_offers_one_click_setup_when_not_installed(qtbot, tmp_path, monk
     monkeypatch.setenv("TRACECMR_UCL_DIR", str(tmp_path / "missing"))
     monkeypatch.setattr(ms, "default_dir", lambda: tmp_path / "ucl")
     present = {"tf": False}
-    monkeypatch.setattr(ms, "tensorflow_present", lambda: present["tf"])
+    monkeypatch.setattr(ms, "runtime_present", lambda: present["tf"])
+    monkeypatch.setattr(ac, "_present", lambda m: present["tf"])
+    monkeypatch.setattr(ac.sys, "prefix", str(tmp_path / "prefix"))  # no model shipped with this test Python
 
     def fake_setup(dest, cancelled=lambda: False):
         yield ms.Step("model", 50, 100, "Downloading the model: model weights (156 MB)")
-        (dest / "ModelWeights").mkdir(parents=True)
-        (dest / "unet3plus.py").write_text("# stand-in")
-        (dest / "ModelWeights" / "SEG459.h5").write_bytes(b"0" * 2_000_000)
-        yield ms.Step("tensorflow", 0, 0, "Installing TensorFlow (about 350 MB)")
+        dest.mkdir(parents=True)
+        (dest / "ucl_seg459.onnx").write_bytes(b"0" * 2_000_000)
+        yield ms.Step("runtime", 0, 0, "Installing ONNX Runtime (about 20 MB)")
         present["tf"] = True
         yield ms.Step("done", 1, 1, "Auto-contouring is ready")
 
@@ -2158,7 +2159,7 @@ def test_auto_lv_offers_one_click_setup_when_not_installed(qtbot, tmp_path, monk
         present["tf"] = False
 
         def broken(dest, cancelled=lambda: False):
-            yield ms.Step("tensorflow", 0, 0, "Installing TensorFlow (about 350 MB)")
+            yield ms.Step("runtime", 0, 0, "Installing ONNX Runtime (about 20 MB)")
             raise ms.SetupError("Installing TensorFlow failed. Check the internet connection and try again.")
 
         monkeypatch.setattr(ms, "run_setup", broken)

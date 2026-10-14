@@ -36,10 +36,14 @@ jobs:
       - name: Build tools
         run: conda install -y -c conda-forge constructor
 
+      - name: The UCL model for Auto LV (pinned in src/tracecmr/ucl_model.json, checked against its SHA-256)
+        run: python scripts/fetch_ucl_model.py installer
+
       - name: TraceCMR and its packages as wheels
         run: |
           python -m pip install --upgrade pip
-          python -m pip wheel --wheel-dir build/wheels ".[app]" "h5py<3.15"  # h5py: the range TensorFlow 2.21 accepts
+          # "auto" = ONNX Runtime, which runs the bundled model; h5py: the range TensorFlow 2.21 accepts
+          python -m pip wheel --wheel-dir build/wheels ".[app,auto]" "h5py<3.15"
           ls build/wheels | head -80
           python -c "import shutil; shutil.make_archive('installer/wheels', 'zip', 'build/wheels')"
 
@@ -66,6 +70,8 @@ jobs:
         run: |
           "%RUNNER_TEMP%\TraceCMR\python.exe" -c "import tracecmr, tracecmr.drift, tracecmr.app._widget, napari; print('imports OK', tracecmr.__file__)"
           if not exist "%RUNNER_TEMP%\TraceCMR\Scripts\tracecmr-app.exe" (echo no app launcher & exit /b 1)
+          findstr /c:"AUTO LV OK" "%RUNNER_TEMP%\TraceCMR\install_log.txt"
+          "%RUNNER_TEMP%\TraceCMR\python.exe" -c "from tracecmr import autocontour as ac; b = ac.ucl_backend(); print('Auto LV', b, ac.ucl_onnx_path()); assert b == 'onnx'"
 
       - name: Install it (macOS)
         if: runner.os == 'macOS'
@@ -96,6 +102,8 @@ jobs:
         run: |
           "$PREFIX/bin/python" -c "import tracecmr, tracecmr.drift, tracecmr.app._widget, napari; print('imports OK', tracecmr.__file__)"
           test -x "$PREFIX/bin/tracecmr-app"
+          grep "AUTO LV OK" "$PREFIX/install_log.txt"
+          "$PREFIX/bin/python" -c "from tracecmr import autocontour as ac; b = ac.ucl_backend(); print('Auto LV', b, ac.ucl_onnx_path()); assert b == 'onnx'"
           ls -la "$HOME/Applications/TraceCMR.app/Contents/MacOS" || true
 
       - uses: actions/upload-artifact@v4

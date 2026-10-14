@@ -224,12 +224,15 @@ def driver(viewer) -> None:
     step("export_all", export)
     step("save_contours", lambda: str(panel.save_contours(quiet=True)), take_shot=False)
 
-    # 9. Auto LV the first time: the app offers the one-time setup; say yes, wait for it, then contour a frame
-    #    that has no expert contours (set TRACECMR_WALK_SKIP_AUTO=1 to leave this out)
+    # 9. Auto LV the first time: ready straight away with the installers from 0.3.5 (TRACECMR_WALK_EXPECT_READY=1
+    #    makes that a requirement); older copies offer the one-time setup, so say yes and wait for it. Then contour
+    #    a frame that has no expert contours (set TRACECMR_WALK_SKIP_AUTO=1 to leave this out)
     if not os.environ.get("TRACECMR_WALK_SKIP_AUTO"):
         def setup_auto():
             if panel.model_ready():
-                return "already set up"
+                return "ready out of the box, no setup needed"
+            if os.environ.get("TRACECMR_WALK_EXPECT_READY"):
+                raise RuntimeError("Auto LV should work straight after installing, but it asks for a setup")
             dismiss_dialogs_later("auto_lv_offer")  # presses "Set up now"
             panel.btn_auto.click()
             pump(1.0)

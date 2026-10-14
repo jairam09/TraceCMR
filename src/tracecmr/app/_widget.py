@@ -818,7 +818,8 @@ class TraceCMRWidget(QWidget):
         row.addWidget(self.btn_model_dir)
         gl.addLayout(row)
         self.btn_setup_model = QPushButton("Set up auto-contouring…")
-        self.btn_setup_model.setToolTip("One-time download of UCL's model and TensorFlow (about 500 MB).")
+        self.btn_setup_model.setToolTip("One-time download of UCL's model and the library that runs it (about 35 MB). "
+                                         "Not needed with the TraceCMR installers from 0.3.5 on.")
         self.btn_setup_model.clicked.connect(lambda: self.start_model_setup())
         gl.addWidget(self.btn_setup_model)
         for w in (self.chk_all_frames, self.chk_smooth, self.lbl_conv):
@@ -2779,7 +2780,7 @@ class TraceCMRWidget(QWidget):
         ready = [i for i, k in enumerate(self._model_keys) if ac.available().get(k) == "ready"]
         if ready:
             self.cmb_model.setCurrentIndex(ready[0])
-        ok = bool(ready) and self._tensorflow_present()
+        ok = bool(ready)
         self.lbl_auto.setText("" if ok else "Auto-contouring needs a one-time download. Click Auto LV to set it up.")
         if hasattr(self, "btn_setup_model"):
             self.btn_setup_model.setText("Auto-contouring is set up" if ok else "Set up auto-contouring…")
@@ -2796,7 +2797,7 @@ class TraceCMRWidget(QWidget):
     def model_ready(self, key: str = "ucl") -> bool:
         from .. import autocontour as ac
 
-        return ac.available().get(key) == "ready" and self._tensorflow_present()
+        return ac.available().get(key) == "ready"
 
     def _dark_box(self, title: str, text: str, info: str = ""):
         from qtpy.QtWidgets import QMessageBox
@@ -2828,8 +2829,8 @@ class TraceCMRWidget(QWidget):
         box = self._dark_box(
             "Set up auto-contouring",
             "Auto LV uses UCL's published mouse heart model (Shah et al., JCMR 2026).",
-            f"Setting it up is a one-time download of about {round(model_setup.DOWNLOAD_MB, -2)} MB: the model, and "
-            "TensorFlow, the library that runs it. It takes about 5 minutes and needs an internet connection. "
+            f"Setting it up is a one-time download of about {model_setup.DOWNLOAD_MB} MB: the model, and ONNX "
+            "Runtime, the small library that runs it. It takes a minute or two and needs an internet connection. "
             "Your scans are not uploaded, and you can keep working while it downloads.")
         go = box.addButton("Set up now", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
@@ -2885,7 +2886,7 @@ class TraceCMRWidget(QWidget):
 
     def _setup_step(self, step) -> None:
         dlg = self.setup_dialog
-        names = {"model": "Step 1 of 2: the model", "tensorflow": "Step 2 of 2: TensorFlow",
+        names = {"model": "Step 1 of 2: the model", "runtime": "Step 2 of 2: ONNX Runtime",
                  "check": "Checking", "done": "Done"}
         dlg.lbl_step.setText(names.get(step.stage, ""))
         if step.total > 0:
@@ -2907,7 +2908,7 @@ class TraceCMRWidget(QWidget):
         dlg.btn_cancel.setText("Close")
         dlg.bar.setVisible(False)
         if ok:
-            ac.reset_workers()  # a fresh model process that sees TensorFlow and the new folder
+            ac.reset_workers()  # a fresh model process that sees the new library and folder
             self.set_model_dir("ucl", str(model_setup.default_dir()))
             self._preloaded = False
             if not getattr(self, "_testing", False):
@@ -2927,7 +2928,7 @@ class TraceCMRWidget(QWidget):
             self.lbl_auto.setText("Auto-contouring isn't set up yet. Click Auto LV to try again.")
 
     def start_model_setup(self, sync: bool = False) -> None:
-        """Download the model and TensorFlow with progress (non-blocking; sync=True for tests)."""
+        """Download the model and ONNX Runtime with progress (non-blocking; sync=True for tests)."""
         from .. import model_setup
 
         if getattr(self, "_setup_running", False):

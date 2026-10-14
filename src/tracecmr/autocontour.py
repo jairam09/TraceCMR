@@ -1,12 +1,15 @@
 """Automatic contouring with published mouse cardiac MRI models.
 
-Two backends, both run from the user's own download of each model (nothing is
-bundled, so each model keeps its own license):
+Two models:
 
-- "ucl":    Shah et al., JCMR 2026 (UNet3+, 2D, LV blood pool + myocardium).
-            GPL-3.0: point TRACECMR_UCL_DIR at a clone of
-            github.com/mrphys/Open-Source_Pre-Clinical_Segmentation with the
-            real weights (Git LFS) in ModelWeights/.
+- "ucl":    Shah et al., JCMR 2026 (UNet3+, 2D, LV blood pool + myocardium), GPL-3.0.
+            Runs with ONNX Runtime from ucl_seg459.onnx, the authors' network converted
+            unchanged (scripts/convert_ucl_onnx.py, checked against TensorFlow; published as a
+            TraceCMR pre-release with their licence). The installers include it; older installs get
+            it from the one-click setup (model_setup.py). Falls back to TensorFlow with the
+            authors' own files (TRACECMR_UCL_DIR: unet3plus.py + ModelWeights/SEG459.h5).
+            Each image is run 8 times (4 rotations x mirror) and the probabilities averaged, so the
+            result does not depend on how the scan happens to be oriented (TRACECMR_TTA=0: once).
 - "calico": Calico Life Sciences, Sci Rep 2025 (3D UNet, LV + myocardium + RV).
             MIT: point TRACECMR_CALICO_DIR at a clone of
             github.com/calico/mouse_cardiac_mri_segmentation with its weights.
@@ -63,12 +66,48 @@ MODELS = {
 }
 
 
+ONNX_NAME = "ucl_seg459.onnx"
+
+
+def _present(module: str) -> bool:
+    import importlib.util
+
+    importlib.invalidate_caches()
+    return importlib.util.find_spec(module) is not None
+
+
+def ucl_onnx_path() -> Path | None:
+    """The ONNX model: TRACECMR_UCL_ONNX, else the one the installer put in <TraceCMR>/models, else the one the
+    one-click setup downloaded (~/.tracecmr/models/ucl)."""
+    cands = []
+    if os.environ.get("TRACECMR_UCL_ONNX"):
+        cands.append(Path(os.environ["TRACECMR_UCL_ONNX"]).expanduser())
+    cands += [Path(sys.prefix) / "models" / ONNX_NAME, _dir("TRACECMR_UCL_DIR", "ucl") / ONNX_NAME]
+    for p in cands:
+        if p.is_file() and p.stat().st_size > 1_000_000:
+            return p
+    return None
+
+
+def ucl_backend() -> str | None:
+    """How the UCL model will run here: "onnx", "tensorflow" (the authors' Keras files), or None."""
+    want = os.environ.get("TRACECMR_UCL_BACKEND", "")
+    if want != "tensorflow" and ucl_onnx_path() is not None and _present("onnxruntime"):
+        return "onnx"
+    u = _dir("TRACECMR_UCL_DIR", "ucl")
+    if want != "onnx" and _ucl_weights(u) and (u / "unet3plus.py").exists() and _present("tensorflow"):
+        return "tensorflow"
+    return None
+
+
+def tta_enabled() -> bool:
+    return os.environ.get("TRACECMR_TTA", "1") != "0"
+
+
 def available() -> dict[str, str]:
     """Which models are installed, with a one-line status each."""
     out = {}
-    u = _dir("TRACECMR_UCL_DIR", "ucl")
-    w = _ucl_weights(u)
-    out["ucl"] = "ready" if w and (u / "unet3plus.py").exists() else f"not installed (set TRACECMR_UCL_DIR; looked in {u})"
+    out["ucl"] = "ready" if ucl_backend() else "not set up (Auto LV offers a one-time download)"
     c = _dir("TRACECMR_CALICO_DIR", "calico")
     ck = c / "model_checkpoints" / "short_axis.ckpt"
     ok = ck.exists() and ck.stat().st_size > 1_000_000  # an LFS pointer is ~130 bytes
@@ -100,6 +139,15 @@ def _load_ucl():
 
 def _load_ucl_locked():
     global _ucl_model
+    if _ucl_model is None and ucl_backend() == "onnx":
+        import onnxruntime as ort
+
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = max(1, os.cpu_count() or 1)
+        opts.log_severity_level = 3
+        sess = ort.InferenceSession(str(ucl_onnx_path()), sess_options=opts, providers=["CPUExecutionProvider"])
+        name = sess.get_inputs()[0].name
+        _ucl_model = lambda x: sess.run(None, {name: np.ascontiguousarray(x, np.float32)})[0]  # noqa: E731
     if _ucl_model is None:
         d = _dir("TRACECMR_UCL_DIR", "ucl")
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -135,6 +183,11 @@ BLOOD_CUTOFF = 0.5
 # 15 validation mice (mass bias +8.1 -> +0.6 mg; EDV, ESV, EF unchanged), checked once on the 25 test mice
 # (+6.3 -> -0.1 mg). TRACECMR_EPI_CUTOFF overrides (0.5 = plain argmax).
 EPI_CUTOFF = 0.9
+# The same cutoff with the 8-orientation average (TTA, the default from 0.3.5). Averaging softens the edge, so
+# the cutoff that gives the expert's mass is lower: chosen the same way on the 15 validation mice (mass bias
+# -0.1 mg at 0.6, -11.4 mg at 0.9), checked once on the 25 test mice (+1.7 mg; one pass at 0.9: -1.0 mg).
+# scripts/validate_backends.py; docs/models.md.
+EPI_CUTOFF_TTA = 0.6
 
 
 def _env_float(name: str, default: float) -> float:
@@ -149,7 +202,7 @@ def blood_cutoff() -> float:
 
 
 def epi_cutoff() -> float:
-    return _env_float("TRACECMR_EPI_CUTOFF", EPI_CUTOFF)
+    return _env_float("TRACECMR_EPI_CUTOFF", EPI_CUTOFF_TTA if tta_enabled() else EPI_CUTOFF)
 
 
 def refine_blood(lab: np.ndarray, p_blood: np.ndarray, cutoff: float) -> np.ndarray:
@@ -181,8 +234,17 @@ def _ucl_probs(vol_xyz: np.ndarray, spacing) -> np.ndarray:
     f = (dx / 0.1, dy / 0.1)
     work = vol_xyz if f == (1.0, 1.0) else ndimage.zoom(vol_xyz, (f[0], f[1], 1), order=1)
     pad = _fit(work, 256)
-    x = np.stack([_minmax(s) for s in np.moveaxis(pad.arr, 2, 0)])[..., None]
-    prob = np.moveaxis(np.asarray(model(x), dtype=np.float32), 0, 2)  # (256, 256, slice, 3)
+    x = np.stack([_minmax(s) for s in np.moveaxis(pad.arr, 2, 0)])[..., None].astype(np.float32)
+    if tta_enabled():  # the same slices in all 8 orientations, in one batch; each result turned back, averaged
+        n = x.shape[0]
+        views = [_dihedral(x, k, f) for f in (False, True) for k in range(4)]
+        out = np.asarray(model(np.concatenate(views)), dtype=np.float32)
+        back = [_dihedral_undo(out[i * n:(i + 1) * n], k, f)
+                for i, (f, k) in enumerate((f, k) for f in (False, True) for k in range(4))]
+        p = np.mean(back, axis=0)
+    else:
+        p = np.asarray(model(x), dtype=np.float32)
+    prob = np.moveaxis(p, 0, 2)  # (256, 256, slice, 3)
     prob = pad.undo(prob)
     prob[pad.undo(np.ones(pad.arr.shape[:3], bool)) == 0] = (1.0, 0.0, 0.0)  # outside the model's view
     if f != (1.0, 1.0):
@@ -480,6 +542,18 @@ def sanity_flags(lab: np.ndarray, frames: Iterable[int]) -> dict[tuple[int, int]
 
 
 # ---------------------------------------------------------------- helpers
+
+def _dihedral(a: np.ndarray, k: int, flip: bool) -> np.ndarray:
+    """(n, x, y, c): mirror (optional), then rotate k quarter turns in the image plane."""
+    if flip:
+        a = a[:, ::-1]
+    return np.rot90(a, k, axes=(1, 2))
+
+
+def _dihedral_undo(a: np.ndarray, k: int, flip: bool) -> np.ndarray:
+    a = np.rot90(a, -k, axes=(1, 2))
+    return a[:, ::-1] if flip else a
+
 
 def _minmax(s: np.ndarray) -> np.ndarray:
     lo, hi = float(s.min()), float(s.max())
