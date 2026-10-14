@@ -1328,9 +1328,27 @@ class TraceCMRWidget(QWidget):
             self.open_path(folder)
 
     def open_study(self, folder) -> None:
-        """List every series in a DICOM folder on the left and open the most likely short-axis cine."""
-        from .study import scan_dicom_folder
+        """List every series in a scan folder on the left and open the most likely short-axis cine. The folder
+        can be a Bruker ParaVision study (read straight from the scanner's files) or a folder of DICOM files."""
+        from .. import bruker
+        from .study import scan_bruker_study, scan_dicom_folder
 
+        folder = Path(folder)
+        if folder.name.isdigit() and bruker.is_study(folder.parent):
+            folder = folder.parent  # picked one scan of a ParaVision study: open the whole study
+        if bruker.is_study(folder):
+            found = scan_bruker_study(folder)
+            if not found:
+                self.series_panel.lbl.setText("This ParaVision study has no image scans TraceCMR can open.")
+                return
+            self._show_study(folder, found)
+            return
+        studies = [d for d in folder.iterdir() if d.is_dir() and bruker.is_study(d)] if folder.is_dir() else []
+        if studies:  # a folder of ParaVision studies (one per mouse session): list them as mice
+            self.series_panel.fill_mice(str(folder))
+            self.series_panel.lbl.setText(f"This folder holds {len(studies)} ParaVision scan sessions. "
+                                          f"Pick one in the Mice list.")
+            return
         found = scan_dicom_folder(folder)
         if len(found) == 1 and found[0].n_slices == 1:  # picked one slice's folder: use the mouse folder above it
             parent = Path(folder).parent
@@ -1339,8 +1357,11 @@ class TraceCMRWidget(QWidget):
                 if len(above) > 1:
                     found, folder = above, parent
         if not found:
-            self.series_panel.lbl.setText("No DICOM images found. Choose one mouse's folder.")
+            self.series_panel.lbl.setText("No DICOM images or ParaVision scans found. Choose one mouse's folder.")
             return
+        self._show_study(folder, found)
+
+    def _show_study(self, folder, found) -> None:
         from .study import auto_stacks
 
         stacks = auto_stacks(found)  # one cine per slice -> one short-axis stack, parts listed under it

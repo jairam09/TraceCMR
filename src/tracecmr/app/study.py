@@ -3,10 +3,12 @@
 A Bruker or clinical export folder usually holds several series (short-axis cine,
 long-axis cines, scout, late enhancement). `scan_dicom_folder` groups the files
 by DICOM SeriesInstanceUID without reading pixel data, guesses what each series
-is from its description, and loads a series only when the user opens it. Some
-protocols save every short-axis slice as its own single-slice cine; `combine`
-stacks such series into one short-axis cine (slice order then comes from the
-slice positions, and the user can still reorder slices in the panel).
+is from its description, and loads a series only when the user opens it. A Bruker
+ParaVision study folder (numbered scan folders with pdata/1/2dseq) is read directly
+by `scan_bruker_study`, with no DICOM export needed. Some protocols save every
+short-axis slice as its own single-slice cine; `combine` stacks such series into one
+short-axis cine (slice order then comes from the slice positions, and the user can
+still reorder slices in the panel).
 """
 
 from __future__ import annotations
@@ -50,12 +52,15 @@ class Series:
     parts: list["Series"] = field(default_factory=list)  # for a combined stack: the series it was made from
     stack: "Series | None" = None  # for a part: the stack it belongs to
     slice_index: int = 0  # for a part: its slice in the stack
+    pv: object | None = None  # a Bruker ParaVision scan (tracecmr.bruker.PvScan) read from 2dseq
 
     def load(self) -> Session:
         """Open the series (cached: edits made in the app stay with it while the study is open)."""
         if self.session is None:
             if self.parts:
                 self.session = _load_stack(self)
+            elif self.pv is not None:
+                self.session = _session_from_cine(_cine(self), self.name, self.source)
             elif self.paths:
                 self.session = Session.from_dicom_files(self.paths, name=self.name)
             else:
@@ -106,8 +111,23 @@ def scan_dicom_folder(folder: str | Path) -> list[Series]:
         name = f"{num} {desc}".strip() if num is not None else (desc or uid[-8:])
         geom = ()
         if "PerFrameFunctionalGroupsSequence" in ds0:
-            n_slices, n_frames = 0, int(getattr(ds0, "NumberOfFrames", 1))
-            pos = 0.0
+            from ..dicom import enhanced_geometry
+
+            try:  # one or more multi-frame files: slices from the frame positions (Bruker: one file per slice)
+                o, positions = None, []
+                for _, d in items:
+                    oo, pp = enhanced_geometry(d)
+                    o = oo if o is None else o
+                    positions += pp
+                normal = np.cross(o[:3], o[3:])
+                dists = np.round([float(np.dot(q, normal)) for q in positions], 3)
+                n_slices = len(np.unique(dists))
+                n_frames = len(positions) // max(n_slices, 1)
+                pos = float(np.mean(dists))
+                geom = (tuple(np.round(o, 2)), int(ds0.Rows), int(ds0.Columns))
+            except (ValueError, AttributeError, KeyError):
+                n_slices, n_frames = 0, int(getattr(ds0, "NumberOfFrames", 1))
+                pos = 0.0
         else:
             geom = (tuple(np.round(np.array(ds0.ImageOrientationPatient, float), 2)), int(ds0.Rows),
                     int(ds0.Columns))
@@ -130,12 +150,37 @@ def scan_dicom_folder(folder: str | Path) -> list[Series]:
     return out
 
 
+def scan_bruker_study(folder: str | Path) -> list[Series]:
+    """List the scans of a ParaVision study folder as series (parameters only; pixels are read on opening,
+    except a small preview of each)."""
+    from .. import bruker
+
+    out = []
+    for sc in bruker.scan_study(folder):
+        if sc.n_frames < 1 or sc.dim != 2:
+            continue
+        name = f"E{sc.number} {sc.name}"
+        s = Series(name=name, kind=guess_kind(f"{sc.name} {sc.protocol}"), source=str(folder),
+                   n_slices=sc.n_slices, n_frames=sc.n_frames, position_mm=float(np.mean(sc.slice_distances())),
+                   geometry=sc.geometry, pv=sc)
+        try:
+            data = bruker.load_scan(sc)
+            s.thumb = data[:, :, data.shape[2] // 2, 0]
+        except Exception:
+            pass
+        out.append(s)
+    out.sort(key=lambda s: (KINDS.index(s.kind), s.pv.number))
+    return out
+
+
 def combine(series: list[Series], name: str | None = None) -> Series:
     """Stack several series (e.g. one cine per short-axis slice) into one short-axis cine."""
     if len(series) < 2:
         raise ValueError("pick at least two series to combine")
-    if any(not s.paths for s in series):
-        raise ValueError("only DICOM series can be combined")
+    if any(not s.paths and s.pv is None for s in series):
+        raise ValueError("only scanner series (DICOM or ParaVision) can be combined")
+    if len({s.pv is None for s in series}) != 1:
+        raise ValueError("pick series from the same source (all DICOM or all ParaVision)")
     if any(s.n_slices != 1 for s in series):
         raise ValueError("only single-slice cines can be combined (pick the per-slice series)")
     if len({s.geometry for s in series}) != 1:
@@ -183,6 +228,8 @@ def auto_stacks(series: list[Series]) -> list[Series]:
 
 
 def _series_number(s: Series) -> float:
+    if s.pv is not None:
+        return float(s.pv.number)
     head = s.name.split(" ", 1)[0]
     try:
         return float(head)
@@ -192,9 +239,7 @@ def _series_number(s: Series) -> float:
 
 def _load_stack(stack: Series) -> Session:
     """Load each slice's cine and stack them (base/apex order comes later, from the user or auto-order)."""
-    from ..dicom import load_dicom_cine
-
-    cines = [load_dicom_cine(Path(p.paths[0]).parent, subject_id=p.name, paths=p.paths) for p in stack.parts]
+    cines = [_cine(p) for p in stack.parts]
     shapes = {c.data.shape[:2] for c in cines}
     if len(shapes) != 1:
         raise ValueError(f"slices have different matrix sizes: {sorted(shapes)}")
@@ -211,3 +256,24 @@ def _load_stack(stack: Series) -> Session:
     if len(counts) > 1:
         s.subject_id += f" (frames {counts[0]}–{counts[-1]} per slice; first {n_t} used)"
     return s
+
+
+def _cine(s: Series):
+    """One series' cine (DICOM or ParaVision): .data (x, y, slice, time), .spacing, .times_ms,
+    .slice_positions_mm."""
+    if s.pv is not None:
+        from ..bruker import load_cine
+
+        return load_cine(s.pv)
+    from ..dicom import load_dicom_cine
+
+    return load_dicom_cine(Path(s.paths[0]).parent, subject_id=s.name, paths=s.paths)
+
+
+def _session_from_cine(cine, name: str, source: str) -> Session:
+    image = np.asarray(cine.data, dtype=np.float32)
+    times = cine.times_ms
+    return Session(image=image, label=np.zeros(image.shape, np.uint8), spacing=tuple(cine.spacing), subject_id=name,
+                   ed_frame=0, es_frame=0, slice_positions_mm=[float(x) for x in cine.slice_positions_mm],
+                   source=source,
+                   frame_times_ms=[float(x) for x in times] if len(times) and np.all(np.isfinite(times)) else None)

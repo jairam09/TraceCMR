@@ -64,21 +64,45 @@ def _frames_from_classic(ds) -> list[_Frame]:
     ]
 
 
-def _frames_from_enhanced(ds) -> list[_Frame]:
+def _group_getter(ds, pf):
+    """get(sequence, attribute) for one frame of an enhanced file: the frame's own functional groups first, then
+    the shared ones (Bruker puts orientation, position and pixel spacing in the shared groups)."""
     shared = ds.SharedFunctionalGroupsSequence[0] if "SharedFunctionalGroupsSequence" in ds else None
+
+    def get(seq_name, attr):
+        for group in (pf, shared):
+            if group is not None and seq_name in group:
+                item = getattr(group, seq_name)[0]
+                if attr in item:
+                    return getattr(item, attr)
+        return None
+
+    return get
+
+
+def enhanced_geometry(ds) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Orientation (6 direction cosines, first frame) and every frame's position, from the headers only."""
+    orient, positions = None, []
+    for pf in ds.PerFrameFunctionalGroupsSequence:
+        get = _group_getter(ds, pf)
+        o = get("PlaneOrientationSequence", "ImageOrientationPatient")
+        if orient is None and o is not None:
+            orient = np.array(o, dtype=float)
+        pos = get("PlanePositionSequence", "ImagePositionPatient")
+        if pos is not None:
+            positions.append(np.array(pos, dtype=float))
+    if orient is None or not positions:
+        raise ValueError("enhanced DICOM without orientation or position")
+    return orient, positions
+
+
+def _frames_from_enhanced(ds) -> list[_Frame]:
     pixels = ds.pixel_array
     if pixels.ndim == 2:
         pixels = pixels[np.newaxis]
     frames = []
     for i, pf in enumerate(ds.PerFrameFunctionalGroupsSequence):
-
-        def get(seq_name, attr):
-            for group in (pf, shared):
-                if group is not None and seq_name in group:
-                    item = getattr(group, seq_name)[0]
-                    if attr in item:
-                        return getattr(item, attr)
-            return None
+        get = _group_getter(ds, pf)
 
         spacing = get("PixelMeasuresSequence", "PixelSpacing")
         orient = get("PlaneOrientationSequence", "ImageOrientationPatient")
@@ -86,9 +110,16 @@ def _frames_from_enhanced(ds) -> list[_Frame]:
         t = get("CardiacSynchronizationSequence", "NominalCardiacTriggerDelayTime")
         if spacing is None or orient is None or pos is None:
             raise ValueError(f"enhanced DICOM frame {i} is missing geometry (spacing/orientation/position)")
+        slope = get("PixelValueTransformationSequence", "RescaleSlope")
+        icpt = get("PixelValueTransformationSequence", "RescaleIntercept")
+        if slope is not None or icpt is not None:  # enhanced files keep the rescale in a functional group
+            img = pixels[i].astype(np.float32) * float(slope if slope is not None else 1.0) + \
+                float(icpt if icpt is not None else 0.0)
+        else:
+            img = _rescale(ds, pixels[i])
         frames.append(
             _Frame(
-                pixels=_rescale(ds, pixels[i]),
+                pixels=img,
                 position=np.array(pos, dtype=float),
                 orientation=np.array(orient, dtype=float),
                 pixel_spacing=(float(spacing[0]), float(spacing[1])),
