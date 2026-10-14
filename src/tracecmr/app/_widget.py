@@ -2072,7 +2072,6 @@ class TraceCMRWidget(QWidget):
         view.addSeparator()
         view.add("Zoom in", self.btn_zoom_in.click, keys="+", icon="mdi6.magnify-plus-outline")
         view.add("Zoom out", self.btn_zoom_out.click, keys="−", icon="mdi6.magnify-minus-outline")
-        view.add("Center on the heart", self.btn_zoom_fit.click, keys="F", icon="mdi6.image-filter-center-focus")
         view.addSeparator()
         view.add("ED | ES side by side", lambda: self.show_compare(), keys=["Ctrl", "E"],
                  icon="mdi6.compare-horizontal",
