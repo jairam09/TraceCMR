@@ -1,0 +1,60 @@
+# Publish UCL's mouse cardiac model as ONNX (runs without TensorFlow), once per model version.
+#
+# Downloads the authors' published weights (checked against their SHA-256), converts them with
+# scripts/convert_ucl_onnx.py, checks on UCL mice that the ONNX model gives the same probabilities and labels as
+# TensorFlow, and publishes a pre-release (never "latest", so the app's update check is unaffected) holding:
+#   ucl_seg459.onnx, ucl_model.json (size, SHA-256, provenance, check), UCL-LICENSE.txt, NOTICE.md
+# The app and the installers pin that file's SHA-256 in src/tracecmr/ucl_model.json.
+#
+# Actions -> "model" -> "Run workflow".
+
+name: model
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag for this model version
+        default: ucl-model-1
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tools
+        run: |
+          python -m pip install -q "tensorflow-cpu==2.21.0" "tf2onnx==1.17.0" "onnx==1.23.2" onnxruntime
+          python -m pip install -q -e .
+      - name: The authors' files and three test mice
+        run: |
+          set -e
+          raw=https://raw.githubusercontent.com/mrphys/Open-Source_Pre-Clinical_Segmentation/master
+          lfs=https://media.githubusercontent.com/media/mrphys/Open-Source_Pre-Clinical_Segmentation/master
+          mkdir -p ucl/ModelWeights mice
+          curl -sSfL -o ucl/unet3plus.py $raw/unet3plus.py
+          curl -sSfL -o ucl/LICENSE $raw/LICENSE
+          curl -sSfL -o ucl/ModelWeights/SEG459.h5 $lfs/ModelWeights/SEG459.h5
+          for m in Mouse1 Mouse40 Mouse118; do curl -sSfL -o mice/$m.h5 $lfs/Data/$m.h5; done
+          ls -la ucl ucl/ModelWeights mice
+      - name: Convert and check
+        run: python scripts/convert_ucl_onnx.py ucl out mice/Mouse1.h5 mice/Mouse40.h5 mice/Mouse118.h5
+      - name: Publish (pre-release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists: pick a new tag for a new model version"; exit 1; fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "UCL model for Auto LV (ONNX), $TAG" --notes-file out/NOTICE.md \
+            out/ucl_seg459.onnx out/ucl_model.json out/UCL-LICENSE.txt out/NOTICE.md
+          sha=$(python -c "import json; print(json.load(open('out/ucl_model.json'))['sha256'])")
+          size=$(python -c "import json; print(json.load(open('out/ucl_model.json'))['size'])")
+          echo "::notice title=published $TAG::ucl_seg459.onnx $size bytes, sha256 $sha"
