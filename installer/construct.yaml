@@ -9,13 +9,14 @@
 # and TensorFlow on request (Auto LV -> Set up now; tracecmr/model_setup.py).
 
 name: TraceCMR
-version: 0.3.3
+version: 0.3.4
 company: TraceCMR
 
 installer_type: exe  # [win]
 installer_type: pkg  # [osx]
-installer_filename: TraceCMR-0.3.3-Windows-x86_64.exe  # [win]
-installer_filename: TraceCMR-0.3.3-macOS.pkg  # [osx]
+# the same file names every release, so the download links (releases/latest/download/...) never change
+installer_filename: TraceCMR-Windows.exe  # [win]
+installer_filename: TraceCMR-macOS.pkg  # [osx]
 
 channels:
   - conda-forge

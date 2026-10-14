@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.4] - 2026-10-14
+
+- Updates install themselves: when a new version is out, TraceCMR offers it at start (or Help → Check for updates), downloads it in seconds and installs it on restart. If anything goes wrong it goes back to the previous version by itself. No new installer needed.
+- Auto-contouring sets itself up: the first click on Auto LV offers a one-time download of UCL's model and TensorFlow (about 500 MB), with progress.
+- Rotate or mirror the picture: View → Rotate or mirror…, or press O. Display only; every number stays the same.
+- Frame numbers count from 0 everywhere, like slices (the image label said "Frame 1 / 20" for frame 0).
+- Windows: the Desktop and Start-menu shortcuts are created again.
+
+## [0.3.1] - [0.3.3] - 2026-10-13 (beta builds)
 
 ### Added
 - One-click auto-contour setup. The first click on Auto LV (or Settings → Set up auto-contouring…) offers to download UCL's model straight from the authors' repository, checked against their published SHA-256, and install TensorFlow 2.21 into TraceCMR's own Python: about 500 MB, with progress, Cancel, and plain messages when there's no internet or no disk space. It skips what's already there, finishes by starting TensorFlow in a fresh process, then offers "Run Auto LV now". Replaces the separate set_up_auto_contour scripts and the git-lfs instructions testers couldn't follow. The installers ship h5py < 3.15 so adding TensorFlow doesn't replace packages under the app.

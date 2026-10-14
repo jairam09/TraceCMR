@@ -1,10 +1,14 @@
-# A beta tester's first session on a clean Windows PC and a clean Mac, start to finish:
-# download the installer from the public Google Drive link (the same link as the beta page's Download button),
-# install it the way a user does, then open TraceCMR and run scripts/walkthrough.py: the first-run tour, opening a
-# test mouse (also downloaded from Drive), results, per-slice ED/ES Detect, ED | ES, saving a figure, the Wall tab,
-# Export all, Save. Screenshots of every stage are pushed to the branch walkthrough/<os> for review.
+# A beta tester's first session on a clean Windows PC and a clean Mac, start to finish: get the installer, install
+# it the way a user does, then open TraceCMR and run scripts/walkthrough.py: the first-run tour, opening a test mouse
+# (downloaded from Drive), results, per-slice ED/ES Detect, ED | ES, saving a figure, the Wall tab, Export all,
+# Save, then Auto LV's one-time setup and a run. Then patch updates: through the window on the Mac (the card appears,
+# Update, Restart now, TraceCMR reopens on the new version), and headless on both (a broken patch is rolled back,
+# a good one installs, one that needs new packages is refused). Screenshots go to the branch walkthrough/<os>.
 #
-# Run it from GitHub: Actions -> "walkthrough" -> "Run workflow" (paste new Drive file IDs after re-uploading).
+# Where the installer comes from:
+#   - the release workflow calls this with this_run: the installers it just built (nothing is published unless
+#     this passes)
+#   - Actions -> "walkthrough" -> "Run workflow": from Google Drive (file IDs), or from an "installers" run (from_run)
 
 name: walkthrough
 
@@ -22,6 +26,24 @@ on:
         default: 1JcuvxNT-8VfBdM8WBT-mquSCxJMGJ-9-
       from_run:
         description: Test the installers from this "installers" run instead of Drive (run ID; blank = Drive)
+        default: ""
+  workflow_call:
+    inputs:
+      this_run:
+        description: Test the installers and wheel built earlier in the calling run (the release workflow)
+        type: boolean
+        default: true
+      mouse_id:
+        type: string
+        default: 1JcuvxNT-8VfBdM8WBT-mquSCxJMGJ-9-
+      windows_id:
+        type: string
+        default: ""
+      mac_id:
+        type: string
+        default: ""
+      from_run:
+        type: string
         default: ""
 
 permissions:
@@ -46,11 +68,27 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      MOUSE_ID: ${{ inputs.mouse_id || '1JcuvxNT-8VfBdM8WBT-mquSCxJMGJ-9-' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Installer from a GitHub build (checked before it goes on Drive)
-        if: inputs.from_run != ''
+      - name: Installer built earlier in this run
+        if: inputs.this_run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: built
+
+      - name: Release wheel built earlier in this run
+        if: inputs.this_run
+        uses: actions/download-artifact@v4
+        with:
+          name: tracecmr-wheel
+          path: wheel
+
+      - name: Installer from an "installers" run
+        if: inputs.from_run != '' && !inputs.this_run
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -58,24 +96,24 @@ jobs:
           run-id: ${{ inputs.from_run }}
           github-token: ${{ github.token }}
 
-      - name: Download from Google Drive, like a tester
+      - name: Get the installer and a test mouse
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
-          if [ -n "${{ inputs.from_run }}" ]; then
+          if [ -d built ]; then
             f=$(ls built/*.${{ matrix.ext }} | head -1); cp "$f" "TraceCMR-installer.${{ matrix.ext }}"
-            note notice "installer" "from build run ${{ inputs.from_run }}: $(basename "$f") $(wc -c < "$f") bytes"
+            note notice "installer" "built in GitHub: $(basename "$f") $(wc -c < "$f") bytes"
+          else
+            id=${{ matrix.label == 'windows' && inputs.windows_id || inputs.mac_id }}
+            # what the beta page's link does: for a large file Drive answers with its "can't scan for viruses" page
+            curl -sSL -o first.html "https://drive.google.com/uc?export=download&id=$id"
+            note notice "page link answers with" "$(grep -o '<title>[^<]*' first.html | head -1); $(grep -o 'Download anyway' first.html | head -1)"
+            start=$(date +%s)
+            curl -sSL -o "TraceCMR-installer.${{ matrix.ext }}" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+            note notice "installer download" "$(wc -c < TraceCMR-installer.${{ matrix.ext }}) bytes in $(( $(date +%s) - start )) s"
           fi
-          id=${{ matrix.label == 'windows' && inputs.windows_id || inputs.mac_id }}
-          # 1. the page's link: for a large file Drive answers with its "can't scan for viruses" page
-          curl -sSL -o first.html "https://drive.google.com/uc?export=download&id=$id"
-          note notice "page link answers with" "$(file -b first.html 2>/dev/null); $(grep -o '<title>[^<]*' first.html | head -1); $(grep -o 'Download anyway' first.html | head -1)"
-          # 2. what "Download anyway" fetches
-          start=$(date +%s)
-          [ -n "${{ inputs.from_run }}" ] || curl -sSL -o "TraceCMR-installer.${{ matrix.ext }}" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
           size=$(wc -c < "TraceCMR-installer.${{ matrix.ext }}")
-          note notice "installer download" "$size bytes in $(( $(date +%s) - start )) s; $(head -c 4 TraceCMR-installer.${{ matrix.ext }} | od -An -c | tr -s " ")"
           [ "$size" -gt 200000000 ] || { note error "download" "installer too small: $size bytes"; exit 1; }
-          curl -sSL -o Mouse1.h5 "https://drive.usercontent.google.com/download?id=${{ inputs.mouse_id }}&export=download&confirm=t"
+          curl -sSL -o Mouse1.h5 "https://drive.usercontent.google.com/download?id=$MOUSE_ID&export=download&confirm=t"
           msize=$(wc -c < Mouse1.h5)
           note notice "test mouse download" "$msize bytes"
           [ "$msize" -gt 10000000 ] || { note error "download" "Mouse1.h5 too small"; exit 1; }
@@ -108,30 +146,19 @@ jobs:
           for d in "$HOME/TraceCMR" /Applications/TraceCMR /opt/TraceCMR /var/root/TraceCMR; do [ -d "$d" ] && { prefix="$d"; break; }; done
           note notice "macOS install" "$secs s; prefix ${prefix:-not found}; app: $(ls -d "$HOME/Applications/TraceCMR.app" 2>&1); owner: $(stat -f %Su "$prefix" 2>&1); $(sudo grep -E 'OK|DONE|FAIL' "$prefix/install_log.txt" 2>&1 | tr '\n' ' ')"
           sudo grep -q "INSTALL OK" "$prefix/install_log.txt" || { note error "install" "INSTALL OK not found: $(tail -c 1500 inst.txt)"; exit 1; }
+          sudo cp "$prefix/install_log.txt" install_log.txt; sudo chmod a+r install_log.txt
           echo "PY=$prefix/bin/python" >> "$GITHUB_ENV"
 
       - name: First session (walkthrough)
         id: walk
-        continue-on-error: true
+        # Windows runners have no OpenGL, so the window can't open there; the Mac run is the one that counts
+        continue-on-error: ${{ matrix.label == 'windows' }}
         run: |
           set +e
           "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk.txt 2>&1; rc=$?
           cat walk.txt
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit $rc
-
-      - name: First session again with software OpenGL (Windows, if the first try failed)
-        if: runner.os == 'Windows' && steps.walk.outputs.rc != '0'
-        continue-on-error: true
-        env:
-          QT_OPENGL: software
-        run: |
-          set +e
-          rm -rf shots
-          ls "$(dirname "$PY")/Lib/site-packages/PyQt6/Qt6/bin" | grep -i opengl
-          "$PY" scripts/walkthrough.py Mouse1.h5 shots > walk2.txt 2>&1; echo "rc=$?"
-          cat walk2.txt
-          mv walk.txt walk_first_try.txt; mv walk2.txt walk.txt
 
       - name: Auto-contour setup and accuracy (headless, as the app does it)
         id: auto
@@ -145,19 +172,68 @@ jobs:
           note notice "auto-contour (${{ matrix.label }}), $(( $(date +%s) - start )) s, exit $rc" "$(grep -v '^ *\"steps\"' auto.txt | tail -n 30 | cut -c1-200)"
           exit $rc
 
+      - name: Test patches (pretend releases made from the release wheel)
+        id: patches
+        if: always() && env.PY != ''
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          if ! "$PY" -c "import tracecmr.updater"; then note notice "updates" "this installer predates patch updates: skipped"; exit 0; fi
+          if [ ! -d wheel ]; then python -m pip wheel -q --no-deps -w wheel . ; fi
+          base=$(ls wheel/*.whl | head -1)
+          read -r next broken good needs < <("$PY" -c "import tracecmr as t; a,b,c=(int(x) for x in t.__version__.split('.')[:3]); print(f'{a}.{b}.{c+1} {a}.{b}.98 {a}.{b}.99 {a}.{b+1}.0')" | tr -d '\r')
+          "$PY" scripts/make_test_patches.py "$base" patches_gui "$next"
+          "$PY" scripts/make_test_patches.py "$base" patches "$broken:broken" "$good" "$needs:needs"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "ready=1" >> "$GITHUB_OUTPUT"
+          note notice "test patches" "from $(basename "$base"): window $next; headless $broken (broken), $good, $needs (needs new packages)"
+
+      - name: Patch update through the window (macOS)
+        if: always() && runner.os == 'macOS' && steps.patches.outputs.ready == '1'
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          set +e
+          next=${{ steps.patches.outputs.next }}
+          before=$("$PY" -c "import tracecmr; print(tracecmr.__version__)")
+          U="$HOME/.tracecmr/updates"
+          "$PY" scripts/check_update_gui.py "patches_gui/latest-$next.json" Mouse1.h5 shots > update_gui.txt 2>&1; rc=$?
+          cat update_gui.txt
+          [ $rc -eq 0 ] || { note error "update (window)" "the window part failed: $(tail -c 2500 update_gui.txt)"; exit 1; }
+          # the helper installs, then reopens TraceCMR, which reads the result (and renames the file) at start
+          for i in $(seq 1 150); do [ -f "$U/last_update.shown.json" ] && break; sleep 2; done
+          sleep 8
+          screencapture -x shots/update_3_reopened_screen.png 2>/dev/null & sleep 6
+          pkill -f tracecmr-app; pkill -f "tracecmr.app"; sleep 2
+          after=$("$PY" -c "import tracecmr; print(tracecmr.__version__)")
+          res=$(cat "$U/last_update.shown.json" "$U/last_update.json" 2>/dev/null)
+          cp "$HOME/Documents/TraceCMR results/logs/update_log.txt" update_log.txt 2>/dev/null
+          note notice "update through the window" "before $before, after $after; reopened and read the result: $([ -f "$U/last_update.shown.json" ] && echo yes || echo NO); $res"
+          [ "$after" = "$next" ] || { note error "update (window)" "TraceCMR is $after, expected $next: $(tail -c 2500 update_log.txt)"; exit 1; }
+          [ -f "$U/last_update.shown.json" ] || { note error "update (window)" "the reopened TraceCMR never read the result (did it reopen?)"; exit 1; }
+
+      - name: Patch updates, headless (broken rolled back, good installed, new packages refused)
+        if: always() && steps.patches.outputs.ready == '1'
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          set +e
+          "$PY" scripts/check_update.py patches update_report.json > update.txt 2>&1; rc=$?
+          cat update.txt
+          cp "$HOME/Documents/TraceCMR results/logs/update_log.txt" update_log.txt 2>/dev/null
+          note notice "patch updates headless (${{ matrix.label }}), exit $rc" "$(grep -E '^(OK|FAIL)|^\{' update.txt | cut -c1-300)"
+          exit $rc
+
       - name: Report
         if: always()
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
           note notice "walkthrough output" "$(grep -E '^(OK|FAIL)|^\{' walk.txt 2>/dev/null | cut -c1-300 | tail -n 40)"
-          if [ -f walk_first_try.txt ]; then note notice "first try (default OpenGL)" "$(tail -c 2500 walk_first_try.txt)"; fi
-          [ -f shots/summary.json ] || note error "walkthrough" "no summary: $(tail -c 3000 walk.txt 2>/dev/null)"
+          [ -f shots/summary.json ] || note warning "walkthrough" "no summary: $(tail -c 3000 walk.txt 2>/dev/null)"
 
       - name: Push screenshots to branch walkthrough/${{ matrix.label }}
         if: always()
         continue-on-error: true  # bookkeeping: never marks the test itself as failed
         run: |
-          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json out/ 2>/dev/null; true
+          mkdir -p out && cp -r shots/. out/ 2>/dev/null
+          cp walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json update*.txt update*.json update_log.txt out/ 2>/dev/null; true
           cd out
           git init -q -b "walkthrough/${{ matrix.label }}"
           git config user.name "walkthrough bot"; git config user.email "actions@github.com"

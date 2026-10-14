@@ -2168,3 +2168,126 @@ def test_auto_lv_offers_one_click_setup_when_not_installed(qtbot, tmp_path, monk
     finally:
         ac.reset_workers()
         viewer.close()
+
+
+def test_update_card_flow(qtbot, tmp_path, monkeypatch):
+    """A newer version: the card offers it, downloads it, and installs on restart or at the next close. Up to
+    date, offline, needing the installer, and the note after an update each say so plainly."""
+    from tracecmr import updater as up
+
+    monkeypatch.setattr(up, "updates_dir", lambda: tmp_path / "updates")
+    monkeypatch.setattr(up, "log_path", lambda: tmp_path / "update_log.txt")
+    monkeypatch.setattr(up, "install_kind", lambda: "app")
+    up.cancel_scheduled()
+    new = up.Update(version="9.9.9", notes=["Rotate the picture. More detail here.", "Faster."],
+                    installer_url="https://example.org/TraceCMR-macOS.pkg")
+    answer = {"check": new}
+
+    def fake_check(url=None):
+        if isinstance(answer["check"], Exception):
+            raise answer["check"]
+        return answer["check"]
+
+    monkeypatch.setattr(up, "check", fake_check)
+    wheel = tmp_path / "updates" / "tracecmr-9.9.9-py3-none-any.whl"
+
+    def fake_download(u, progress=None, cancelled=lambda: False):
+        wheel.parent.mkdir(parents=True, exist_ok=True)
+        wheel.write_bytes(b"w")
+        progress and progress(1, 1)
+        return wheel
+
+    monkeypatch.setattr(up, "download", fake_download)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        ctl = panel.updates
+        ctl.app_mode = True
+        ctl.check(manual=False, sync=True)
+        card = ctl.card
+        assert card.state == "available" and "9.9.9" in card.title.text()
+        assert "Rotate the picture." in card.notes.text() and "More detail" not in card.notes.text()
+        assert card.btn_first.text() == "Update" and card.btn_second.text() == "Later"
+        ctl.download(sync=True)
+        assert card.state == "ready" and card.btn_first.text() == "Restart now"
+        card.btn_second.click()  # "When I close TraceCMR"
+        assert up.scheduled() == {"version": "9.9.9", "wheel": str(wheel), "relaunch": False,
+                                  "notes": new.notes}
+        assert not card.isVisible()
+        ctl.check(manual=True, sync=True)  # asking again: it's waiting for the close
+        assert card.state == "scheduled" and "installs when you close" in card.text.text()
+        up.cancel_scheduled()
+
+        answer["check"] = None
+        ctl.check(manual=True, sync=True)
+        assert card.state == "current" and "latest version" in card.text.text()
+        answer["check"] = up.UpdateError("Couldn't check for updates (no network). Check the internet connection.")
+        ctl.check(manual=True, sync=True)
+        assert card.state == "check_failed" and card.btn_first.text() == "Try again"
+        card.hide()
+        ctl.check(manual=False, sync=True)  # the quiet check at start says nothing when offline
+        assert not card.isVisible()
+
+        monkeypatch.setattr(up, "can_patch", lambda u: ["numpy>=99 (have 2.0)"])
+        answer["check"] = new
+        ctl.check(manual=True, sync=True)
+        assert card.state == "installer" and card.btn_first.text() == "Download"
+        opened = []
+        monkeypatch.setattr(ctl, "_open", lambda url: opened.append(url))
+        card.btn_first.click()
+        assert opened == ["https://example.org/TraceCMR-macOS.pkg"]
+
+        monkeypatch.setattr(up, "install_kind", lambda: "dev")
+        ctl.check(manual=True, sync=True)
+        assert card.state == "dev" and "git pull" in card.text.text()
+
+        ctl.show_result({"ok": True, "from": "0.3.4", "to": "9.9.9", "notes": ["Faster."]})
+        assert card.state == "updated" and "9.9.9" in card.text.text()
+        ctl.show_result({"ok": False, "from": "0.3.4", "to": "9.9.9",
+                         "message": "The update to 9.9.9 couldn't be installed, so TraceCMR is still 0.3.4."})
+        assert card.state == "update_failed" and "still 0.3.4" in card.text.text()
+        assert "update_log.txt" in card.text.text()
+    finally:
+        up.cancel_scheduled()
+        viewer.close()
+
+
+def test_restart_now_saves_and_closes(qtbot, tmp_path, monkeypatch):
+    from tracecmr import updater as up
+
+    monkeypatch.setattr(up, "updates_dir", lambda: tmp_path / "updates")
+    monkeypatch.setattr(up, "log_path", lambda: tmp_path / "update_log.txt")
+    up.cancel_scheduled()
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(_phantom_session())
+        saved = []
+        monkeypatch.setattr(panel, "save_contours", lambda quiet=False, path=None: saved.append(quiet))
+        monkeypatch.setattr(panel.autosave, "_current", lambda: ("changed", None))
+        closed = []
+        win = viewer.window._qt_window
+        monkeypatch.setattr(win, "close", lambda: closed.append(1) or False)  # pretend something kept it open
+        ctl = panel.updates
+        ctl.up, ctl.wheel = up.Update(version="9.9.9"), tmp_path / "w.whl"
+        ctl.restart_now()
+        assert saved == [True] and closed == [1]
+        assert up.scheduled()["relaunch"] is False  # kept open: install at the next close instead
+    finally:
+        up.cancel_scheduled()
+        viewer.close()
+
+
+def test_settings_and_help_offer_updates(qtbot):
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        texts = [a.text() for a in panel.btn_help.menu().actions()] + \
+                [getattr(a, "_row_text", "") for a in panel.btn_help.menu().actions()]
+        rows = panel.btn_help.menu().findChildren(type(panel.lbl_auto))
+        assert any("Check for updates" in (r.text() or "") for r in rows) or any("Check for updates" in t
+                                                                               for t in texts)
+        assert panel.chk_updates.text() == "Check for updates when TraceCMR starts"
+    finally:
+        viewer.close()

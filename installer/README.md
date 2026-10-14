@@ -9,11 +9,17 @@ their Applications folder (Launchpad, Spotlight, Dock). Intel Macs are not built
 
 Nothing of the user's (scans, contours, results) lives in the install folder.
 
-## Build them on GitHub (normal route)
+## Releases (normal route)
 
-GitHub → Actions → **installers** → **Run workflow**. It builds both installers on real Windows and Mac
-machines, installs each one, checks the app starts, and attaches the installers to the run (download them from
-the run page under Artifacts). It also runs by itself when a version tag (`v0.3.1`, ...) is pushed.
+Push a version tag (`git tag v0.3.5 && git push origin v0.3.5`). The **release** workflow builds both
+installers and the patch wheel, tests them on clean Windows and Mac machines (install, the first session, Auto
+LV setup, and patch updates including a rollback), and only then publishes a GitHub release. The installers keep
+the same names every release, so `https://github.com/jairam09/TraceCMR/releases/latest/download/TraceCMR-Windows.exe`
+(and `TraceCMR-macOS.pkg`) always give the newest. Installed copies update themselves from the release's
+`latest.json` and wheel (see docs/updates.md).
+
+To build installers without releasing: GitHub → Actions → **installers** → **Run workflow** (the installers are
+attached to the run under Artifacts).
 
 ## Build on Windows by hand (fallback)
 

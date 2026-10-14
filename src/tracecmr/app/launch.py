@@ -80,7 +80,12 @@ def main(argv: list[str] | None = None) -> None:
     from qtpy.QtCore import QTimer
 
     QTimer.singleShot(2400, panel.maybe_start_tour)  # first run only: once the logo has drawn itself in
+    panel.updates.app_mode = True  # closing this window ends the program, so an update can install then
+    QTimer.singleShot(3000, panel.updates.startup)  # "updated to X" note, then a quiet check for a new version
     napari.run()
+    from .. import updater
+
+    updater.apply_scheduled()  # an update waiting for TraceCMR to close: hand it to the helper and go
     # The window is closed and everything is saved: leave straight away. Letting Python tear down Qt, OpenGL and
     # napari piece by piece can crash at the very end on some systems (a pointless "stopped working" box).
     for stream in (sys.stdout, sys.stderr):

@@ -9,7 +9,7 @@
 
 Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regional wall thickness and thickening maps, and (planned) tracking the same heart across scans and LGE scar quantification.
 
-> **Status: early development (v0.3.0).** Data loading (UCL, NIfTI, DICOM), sanity checks, overlays, global LV function (volumes, EF, mass) and regional wall thickness work. Scar and longitudinal tracking are in progress. Not yet validated for research use.
+> **Status: early development (v0.3.4, beta).** Data loading (UCL, NIfTI, DICOM), sanity checks, overlays, global LV function (volumes, EF, mass) and regional wall thickness work. Scar and longitudinal tracking are in progress. Not yet validated for research use.
 
 ## What it will do
 
@@ -27,10 +27,17 @@ Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regiona
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
 | Bruker ParaVision and Segment (.mat) input | Planned |
 
-## Install
+## Download the app
+
+Installers for Windows and Mac (Apple silicon), no Python needed: [latest release](https://github.com/jairam09/TraceCMR/releases/latest)
+(`TraceCMR-Windows.exe`, `TraceCMR-macOS.pkg`). Once installed, TraceCMR updates itself: when a new version is
+out it offers it at start (or Help → Check for updates), and installs it in place on restart, going back to the
+previous version by itself if anything fails. See [docs/updates.md](docs/updates.md).
+
+## Install from source
 
 ```bash
-git clone https://github.com/jairam09/tracecmr.git
+git clone https://github.com/jairam09/TraceCMR.git
 cd tracecmr
 pip install -e ".[dev]"
 pytest            # all tests should pass

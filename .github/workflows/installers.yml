@@ -1,14 +1,14 @@
 # Builds the TraceCMR installers on real Windows and macOS machines, installs each one, and checks that the
 # installed app starts. The installers are attached to the run as downloadable artifacts.
 #
-# Run it from GitHub: Actions -> "installers" -> "Run workflow". It also runs on version tags (v0.3.0, ...).
+# Run it from GitHub: Actions -> "installers" -> "Run workflow". The release workflow (release.yml) also runs it
+# for every version tag, then tests and publishes what it built.
 
 name: installers
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  workflow_call:
 
 jobs:
   build:

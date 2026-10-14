@@ -21,6 +21,7 @@ OWNER="$(stat -f %Su /dev/console 2>/dev/null || id -un)"
 OWNER_HOME="$(dscl . -read "/Users/$OWNER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 [ -n "$OWNER_HOME" ] || OWNER_HOME="$HOME"
 APP="$OWNER_HOME/Applications/TraceCMR.app"
+VERSION="$("$PREFIX/bin/python" -c "import tracecmr; print(tracecmr.__version__)" 2>/dev/null || echo 0)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cat > "$APP/Contents/MacOS/TraceCMR" <<LAUNCH
@@ -40,7 +41,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>TraceCMR</string>
   <key>CFBundleIconFile</key><string>tracecmr</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST

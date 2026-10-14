@@ -1,0 +1,92 @@
+# Publish a TraceCMR version: push a tag like v0.3.5 and this builds everything, tests it on clean machines, and
+# only then publishes a GitHub release with:
+#   TraceCMR-Windows.exe, TraceCMR-macOS.pkg   the full installers (same names every time, so the download links
+#                                               .../releases/latest/download/TraceCMR-Windows.exe never change)
+#   tracecmr-<version>-py3-none-any.whl         the patch: TraceCMR's own code, which installed copies update to
+#   latest.json                                 what the app's updater reads (version, notes, wheel hash, needs)
+#
+# Steps: bump the version (pyproject.toml, src/tracecmr/__init__.py, installer/construct.yaml), add a
+# "## [x.y.z] - date" section with short bullets to CHANGELOG.md (they become the release notes and the "What's
+# new" in the app), commit, then `git tag vx.y.z && git push origin vx.y.z`.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Patch wheel, latest.json and release notes
+        run: |
+          python -m pip wheel -q --no-deps -w dist .
+          python scripts/release_manifest.py dist/*.whl --tag "${GITHUB_REF_NAME}" --out dist/latest.json --notes-md dist/notes.md
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tracecmr-wheel
+          path: dist/*
+          if-no-files-found: error
+
+  installers:
+    uses: ./.github/workflows/installers.yml
+
+  test:
+    needs: [wheel, installers]
+    uses: ./.github/workflows/walkthrough.yml
+    with:
+      this_run: true
+
+  publish:
+    needs: [wheel, installers, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la art
+          test -f art/TraceCMR-Windows.exe && test -f art/TraceCMR-macOS.pkg && test -f art/latest.json
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --latest \
+            --title "TraceCMR ${GITHUB_REF_NAME#v}" --notes-file art/notes.md \
+            art/TraceCMR-Windows.exe art/TraceCMR-macOS.pkg art/tracecmr-*.whl art/latest.json
+
+  check-public:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: The public links answer the way the app and the beta page expect
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"; }
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          for i in 1 2 3 4 5 6; do curl -sSfL -o latest.json "$base/latest.json" && break; sleep 10; done
+          v=$(python3 -c "import json; print(json.load(open('latest.json'))['version'])")
+          [ "$v" = "${GITHUB_REF_NAME#v}" ] || { note error "latest.json" "says $v, expected ${GITHUB_REF_NAME#v}"; exit 1; }
+          url=$(python3 -c "import json; print(json.load(open('latest.json'))['wheel']['url'])")
+          want=$(python3 -c "import json; print(json.load(open('latest.json'))['wheel']['sha256'])")
+          curl -sSfL -o patch.whl "$url"
+          got=$(sha256sum patch.whl | cut -d' ' -f1)
+          [ "$got" = "$want" ] || { note error "wheel" "sha256 $got, latest.json says $want"; exit 1; }
+          for f in TraceCMR-Windows.exe TraceCMR-macOS.pkg; do
+            n=$(curl -sSfL -o /dev/null -w '%{size_download}' "$base/$f")
+            [ "$n" -gt 200000000 ] || { note error "$f" "only $n bytes"; exit 1; }
+            echo "$f: $n bytes"
+          done
+          note notice "release ${GITHUB_REF_NAME}" "latest.json $v; wheel sha256 ok; both installers download from $base"

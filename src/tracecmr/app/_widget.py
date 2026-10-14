@@ -872,6 +872,26 @@ class TraceCMRWidget(QWidget):
         self.chk_mirror.toggled.connect(self._mirror_toggled)
         gl.addWidget(self.chk_mirror)
         sl.addWidget(g)
+        g = QGroupBox("Updates")
+        gl = QVBoxLayout(g)
+        from .. import __version__
+        from .updates import UpdateController
+
+        row = QHBoxLayout()
+        lbl_ver = QLabel(f"This is TraceCMR {__version__}.")
+        lbl_ver.setStyleSheet(NOTE_STYLE)
+        row.addWidget(lbl_ver, 1)
+        btn_check = QPushButton("Check now")
+        btn_check.clicked.connect(lambda: self.updates.check(manual=True))
+        row.addWidget(btn_check)
+        gl.addLayout(row)
+        self.chk_updates = QCheckBox("Check for updates when TraceCMR starts")
+        self.chk_updates.setToolTip("One small download from GitHub at start. Nothing about you or your scans "
+                                    "is sent.")
+        self.chk_updates.setChecked(UpdateController.check_on_start_enabled())
+        self.chk_updates.toggled.connect(UpdateController.set_check_on_start)
+        gl.addWidget(self.chk_updates)
+        sl.addWidget(g)
         close = QPushButton("Close")
         close.clicked.connect(self.settings.hide)
         sl.addWidget(close)
@@ -1032,6 +1052,9 @@ class TraceCMRWidget(QWidget):
         from .autosave import AutoSave
 
         self.autosave = AutoSave(self)
+        from .updates import UpdateController
+
+        self.updates = UpdateController(self)  # update card, Help → Check for updates
         try:  # every layer added later (curves, wall lines, regions) is turned like the image
             self.viewer.layers.events.inserted.connect(lambda e: self._orient_layer(e.value))
         except Exception:
@@ -2089,6 +2112,8 @@ class TraceCMRWidget(QWidget):
         help_menu.addSeparator()
         help_menu.add("Report a problem…", self._report_problem, icon="mdi6.lifebuoy",
                       tooltip="Saves a report with versions and the recent log, ready to send")
+        help_menu.add("Check for updates…", lambda: self.updates.check(manual=True), icon="mdi6.update",
+                      tooltip="Installs a newer TraceCMR in place, without a new installer")
         self.btn_help.setMenu(help_menu)
         self.btn_help.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
@@ -2163,7 +2188,7 @@ class TraceCMRWidget(QWidget):
             (self.btn_left, "Scans panel", "Mice, series and slices.", None),
             (self.btn_right, "Results panel", "Volumes, EF, wall and regions.", None),
             (self.btn_focus, "Focus", "Hide the side panels so the scan fills the window.", ["Ctrl", "Shift", "F"]),
-            (self.btn_help, "Help", "Keyboard shortcuts and the tour.", ["?"]),
+            (self.btn_help, "Help", "Keyboard shortcuts, the tour and updates.", ["?"]),
             (self.btn_settings, "Settings", "Model, auto-contour, editing and folder options.", None),
         ):
             set_hint(btn, title, body, keys)
