@@ -11,6 +11,8 @@ Times are from a 2-core cloud machine with no GPU; a recent laptop is similar or
 
 ## Installing
 
+**In the app:** click Auto LV and choose "Set up now" (or Settings → Set up auto-contouring…). It downloads UCL's model into `~/.tracecmr/models/ucl` (weights checked against the authors' published SHA-256) and installs TensorFlow 2.21 into TraceCMR's own Python. Nothing is uploaded. The steps below are the manual equivalent, and the only route for the Calico model.
+
 Both repositories keep their weights in Git LFS, so a plain download gives only small pointer files.
 
 ```bash

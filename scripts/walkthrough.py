@@ -224,6 +224,59 @@ def driver(viewer) -> None:
     step("export_all", export)
     step("save_contours", lambda: str(panel.save_contours(quiet=True)), take_shot=False)
 
+    # 9. Auto LV the first time: the app offers the one-time setup; say yes, wait for it, then contour a frame
+    #    that has no expert contours (set TRACECMR_WALK_SKIP_AUTO=1 to leave this out)
+    if not os.environ.get("TRACECMR_WALK_SKIP_AUTO"):
+        def setup_auto():
+            if panel.model_ready():
+                return "already set up"
+            dismiss_dialogs_later("auto_lv_offer")  # presses "Set up now"
+            panel.btn_auto.click()
+            pump(1.0)
+            if not getattr(panel, "_setup_running", False) and not panel.model_ready():
+                raise RuntimeError("Auto LV did not start the setup")
+            t0 = time.time()
+            while getattr(panel, "_setup_running", False):
+                pump(1.0)
+                if time.time() - t0 > 1800:
+                    raise RuntimeError("setup still running after 30 minutes")
+            dlg = panel.setup_dialog
+            _shot_n[0] += 1
+            fn = f"{_shot_n[0]:02d}_auto_lv_setup_dialog.png"
+            dlg.grab().save(str(OUT / fn))
+            steps.append({"name": "auto_lv_setup_dialog", "ok": True, "shot": fn,
+                          "note": dlg.lbl_step.text() + " | " + dlg.lbl_text.text()})
+            if not panel.model_ready():
+                raise RuntimeError(f"setup ended without a working model: {dlg.lbl_text.text()}")
+            dlg.hide()
+            return f"set up in {time.time() - t0:.0f} s"
+
+        step("auto_lv_setup", setup_auto)
+
+        def run_auto():
+            s = panel.session
+            empty = [t for t in range(s.image.shape[3]) if not s.label[..., t].any()]
+            if not empty:
+                raise RuntimeError("no frame without contours to try Auto LV on")
+            t = empty[len(empty) // 2]
+            cur = list(panel.viewer.dims.current_step)
+            cur[0] = t
+            panel.viewer.dims.current_step = tuple(cur)
+            pump(0.5)
+            panel.btn_auto.click()
+            t0 = time.time()
+            pump(1.0)
+            while not panel.btn_auto.isEnabled():
+                pump(0.5)
+                if time.time() - t0 > 600:
+                    raise RuntimeError("Auto LV still running after 10 minutes")
+            n = sum(1 for z in range(s.image.shape[2]) if s.label[:, :, z, t].any())
+            if n == 0:
+                raise RuntimeError(f"Auto LV drew nothing: {panel.lbl_auto.text()}")
+            return f"frame {t}: {n} slices contoured in {time.time() - t0:.0f} s · {panel.lbl_auto.text()[:120]}"
+
+        step("auto_lv_run", run_auto)
+
     try:
         from tracecmr.app.launch import log_path
 
@@ -256,8 +309,8 @@ def main() -> None:
     launch.reveal = reveal
 
     def watchdog():  # never hang a CI machine
-        time.sleep(600)
-        errors.append("walkthrough timed out after 10 minutes")
+        time.sleep(2700)
+        errors.append("walkthrough timed out after 45 minutes")
         finish()
 
     import threading

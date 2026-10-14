@@ -25,7 +25,7 @@ set "PY=%BUILD%\py\python.exe"
 
 echo [2/4] TraceCMR and every package it needs, as wheels...
 if exist "%BUILD%\wheels" rmdir /s /q "%BUILD%\wheels"
-"%PY%" -m pip wheel --wheel-dir "%BUILD%\wheels" "%REPO%[app]" >> "%LOG%" 2>&1
+"%PY%" -m pip wheel --wheel-dir "%BUILD%\wheels" "%REPO%[app]" "h5py<3.15" >> "%LOG%" 2>&1
 if errorlevel 1 goto failed
 
 echo [3/4] packing the wheels...

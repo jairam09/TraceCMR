@@ -323,6 +323,17 @@ class _Worker:
 _workers: dict[str, _Worker] = {}
 
 
+def reset_workers() -> None:
+    """Stop the model processes, so the next run starts fresh (e.g. after setting up a model or TensorFlow)."""
+    for w in list(_workers.values()):
+        try:
+            if w.proc is not None and w.proc.poll() is None:
+                w.proc.terminate()
+        except Exception:
+            pass
+    _workers.clear()
+
+
 def _model_volume(model: str, vol_xyz: np.ndarray, spacing) -> np.ndarray:
     """Run a model on one volume: inside a worker process from the app, directly inside the worker."""
     global _last_unsure

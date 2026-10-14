@@ -171,7 +171,7 @@ def draw_pair(fig, panel, z: int, contours_on=True, scale_bar=True, crop=True, l
             # fixed offsets in points from the corner, so the two lines never overlap however small the image
             ax.annotate(ph, (0, 1), xycoords="axes fraction", xytext=(6, -5), textcoords="offset points",
                         color="white", fontsize=11, fontweight="bold", va="top", ha="left")
-            ax.annotate(f"frame {t + 1}", (0, 1), xycoords="axes fraction", xytext=(6, -20),
+            ax.annotate(f"frame {t}", (0, 1), xycoords="axes fraction", xytext=(6, -20),
                         textcoords="offset points", color="#B8BEC6", fontsize=8, va="top", ha="left")
         if scale_bar and ph == "ES":
             length = _nice_bar_mm((xb - xa) * dx)
@@ -412,7 +412,7 @@ class PairView:
                     font.setBold(False)
                     p.setFont(font)
                     p.setPen(QColor("#B8BEC6"))
-                    p.drawText(QPointF(x + 8, y + 35), f"frame {t + 1}")
+                    p.drawText(QPointF(x + 8, y + 35), f"frame {t}")
                     if self.opts.get("scale_bar", True) and ph == "ES":
                         length = _nice_bar_mm(nx * f["dx"])
                         bar = length / f["dx"] * sx

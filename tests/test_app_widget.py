@@ -2115,3 +2115,56 @@ def test_rotate_and_mirror_the_picture(qtbot, tmp_path):
         if panel is not None and panel.session is not None:
             panel.set_orientation(angle=0, flip=False)  # leave the remembered default as it was
         viewer.close()
+
+
+def test_auto_lv_offers_one_click_setup_when_not_installed(qtbot, tmp_path, monkeypatch):
+    """Clicking Auto LV without the model offers the setup; after it, the model folder is set and Auto LV runs."""
+    from tracecmr import autocontour as ac
+    from tracecmr import model_setup as ms
+
+    monkeypatch.setenv("TRACECMR_UCL_DIR", str(tmp_path / "missing"))
+    monkeypatch.setattr(ms, "default_dir", lambda: tmp_path / "ucl")
+    present = {"tf": False}
+    monkeypatch.setattr(ms, "tensorflow_present", lambda: present["tf"])
+
+    def fake_setup(dest, cancelled=lambda: False):
+        yield ms.Step("model", 50, 100, "Downloading the model: model weights (156 MB)")
+        (dest / "ModelWeights").mkdir(parents=True)
+        (dest / "unet3plus.py").write_text("# stand-in")
+        (dest / "ModelWeights" / "SEG459.h5").write_bytes(b"0" * 2_000_000)
+        yield ms.Step("tensorflow", 0, 0, "Installing TensorFlow (about 350 MB)")
+        present["tf"] = True
+        yield ms.Step("done", 1, 1, "Auto-contouring is ready")
+
+    monkeypatch.setattr(ms, "run_setup", fake_setup)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.load_session(_phantom_session())
+        assert not panel.model_ready()
+        assert "one-time download" in panel.lbl_auto.text()
+        before = panel.session.label.copy()
+        panel._setup_answer = False  # "Not now": nothing changes
+        panel.autocontour(sync=True)
+        assert np.array_equal(panel.session.label, before) and not panel.model_ready()
+        panel._setup_answer = True  # "Set up now"
+        panel.autocontour(sync=True)
+        assert panel.model_ready() and ac.available()["ucl"] == "ready"
+        assert panel.setup_dialog.lbl_step.text() == "Auto-contouring is ready"
+        assert "ready" in panel.lbl_auto.text()
+        assert not panel.btn_setup_model.isEnabled()
+        # a failed setup explains itself and offers to try again
+        present["tf"] = False
+
+        def broken(dest, cancelled=lambda: False):
+            yield ms.Step("tensorflow", 0, 0, "Installing TensorFlow (about 350 MB)")
+            raise ms.SetupError("Installing TensorFlow failed. Check the internet connection and try again.")
+
+        monkeypatch.setattr(ms, "run_setup", broken)
+        panel.start_model_setup(sync=True)
+        assert panel.setup_dialog.lbl_step.text() == "Setup stopped"
+        assert "internet" in panel.setup_dialog.lbl_text.text() and panel.setup_dialog.btn_retry.isVisibleTo(panel.setup_dialog)
+    finally:
+        ac.reset_workers()
+        viewer.close()

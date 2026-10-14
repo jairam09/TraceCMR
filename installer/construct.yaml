@@ -5,16 +5,17 @@
 # Each installer carries its own Python (from conda-forge) plus wheels.zip: TraceCMR and every package it needs,
 # built on the same platform with the same Python version. The post-install script installs those wheels with
 # pip, offline, so users get the same package set that runs TraceCMR in development (PyQt6, napari).
-# No model weights are included: each segmentation model keeps its own licence and is downloaded by the user.
+# No model weights are included: each segmentation model keeps its own licence. The app downloads UCL's model
+# and TensorFlow on request (Auto LV -> Set up now; tracecmr/model_setup.py).
 
 name: TraceCMR
-version: 0.3.2
+version: 0.3.3
 company: TraceCMR
 
 installer_type: exe  # [win]
 installer_type: pkg  # [osx]
-installer_filename: TraceCMR-0.3.2-Windows-x86_64.exe  # [win]
-installer_filename: TraceCMR-0.3.2-macOS.pkg  # [osx]
+installer_filename: TraceCMR-0.3.3-Windows-x86_64.exe  # [win]
+installer_filename: TraceCMR-0.3.3-macOS.pkg  # [osx]
 
 channels:
   - conda-forge
@@ -35,8 +36,6 @@ icon_image: ../src/tracecmr/app/resources/tracecmr.ico  # [win]
 extra_files:
   - wheels.zip
   - ../scripts/windows/make_shortcut.ps1: make_shortcut.ps1  # [win]
-  - set_up_auto_contour.bat  # [win]
-  - set_up_auto_contour.command  # [osx]
   - tracecmr.icns  # [osx]
 
 post_install: post_install.bat  # [win]

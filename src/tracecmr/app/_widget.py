@@ -816,6 +816,10 @@ class TraceCMRWidget(QWidget):
         row.addWidget(self.cmb_model, 1)
         row.addWidget(self.btn_model_dir)
         gl.addLayout(row)
+        self.btn_setup_model = QPushButton("Set up auto-contouring…")
+        self.btn_setup_model.setToolTip("One-time download of UCL's model and TensorFlow (about 500 MB).")
+        self.btn_setup_model.clicked.connect(lambda: self.start_model_setup())
+        gl.addWidget(self.btn_setup_model)
         for w in (self.chk_all_frames, self.chk_smooth, self.lbl_conv):
             gl.addWidget(w)
         sl.addWidget(g)
@@ -2430,7 +2434,7 @@ class TraceCMRWidget(QWidget):
         name = s.slice_names[z] if s.slice_names and z < len(s.slice_names) else ""
         ms = f" · {s.frame_times_ms[t]:.0f} ms" if s.frame_times_ms and t < len(s.frame_times_ms) else ""
         text = (f"{s.subject_id}\nSlice {z}{(' · ' + name) if name else ''}\n"
-                f"Frame {t + 1} / {s.image.shape[3]}{ms}{tag}")
+                f"Frame {t} of {s.image.shape[3] - 1}{ms}{tag}")  # counted from 0, like slices and the frame bar
         try:
             canvas = getattr(self.viewer, "canvas", None)
             ov = canvas.overlays["text"] if canvas is not None and hasattr(canvas, "overlays") \
@@ -2726,7 +2730,203 @@ class TraceCMRWidget(QWidget):
         ready = [i for i, k in enumerate(self._model_keys) if ac.available().get(k) == "ready"]
         if ready:
             self.cmb_model.setCurrentIndex(ready[0])
-        self.lbl_auto.setText("" if ready else "Auto-contouring is not set up on this computer yet. Contour by hand for now.")
+        ok = bool(ready) and self._tensorflow_present()
+        self.lbl_auto.setText("" if ok else "Auto-contouring needs a one-time download. Click Auto LV to set it up.")
+        if hasattr(self, "btn_setup_model"):
+            self.btn_setup_model.setText("Auto-contouring is set up" if ok else "Set up auto-contouring…")
+            self.btn_setup_model.setEnabled(not ok)
+
+    # ---------- one-click setup of auto-contouring (model_setup.py) ----------
+
+    @staticmethod
+    def _tensorflow_present() -> bool:
+        from .. import model_setup
+
+        return model_setup.tensorflow_present()
+
+    def model_ready(self, key: str = "ucl") -> bool:
+        from .. import autocontour as ac
+
+        return ac.available().get(key) == "ready" and self._tensorflow_present()
+
+    def _dark_box(self, title: str, text: str, info: str = ""):
+        from qtpy.QtWidgets import QMessageBox
+
+        box = QMessageBox(self.viewer.window._qt_window if self._has_window() else self)
+        box.setWindowTitle(title)
+        box.setText(text)
+        if info:
+            box.setInformativeText(info)
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        pal = box.palette()
+        pal.setColor(pal.ColorRole.Window, QColor("#1B1F25"))
+        box.setPalette(pal)
+        box.setAutoFillBackground(True)
+        return box
+
+    def offer_model_setup(self) -> None:
+        """Auto LV clicked before the model is installed: explain the one-time download and offer it."""
+        from qtpy.QtWidgets import QMessageBox
+
+        from .. import model_setup
+
+        if getattr(self, "_testing", False):
+            if getattr(self, "_setup_answer", False):
+                self.start_model_setup(sync=True)
+            else:
+                self.lbl_auto.setText("Auto-contouring needs a one-time download. Click Auto LV to set it up.")
+            return
+        box = self._dark_box(
+            "Set up auto-contouring",
+            "Auto LV uses UCL's published mouse heart model (Shah et al., JCMR 2026).",
+            f"Setting it up is a one-time download of about {round(model_setup.DOWNLOAD_MB, -2)} MB: the model, and "
+            "TensorFlow, the library that runs it. It takes about 5 minutes and needs an internet connection. "
+            "Your scans are not uploaded, and you can keep working while it downloads.")
+        go = box.addButton("Set up now", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(go)
+        box.exec()
+        if box.clickedButton() is go:
+            self.start_model_setup()
+
+    def _build_setup_dialog(self):
+        from qtpy.QtWidgets import QProgressBar
+
+        dlg = QDialog(self.viewer.window._qt_window if self._has_window() else self)
+        dlg.setWindowTitle("Setting up auto-contouring")
+        dlg.setModal(False)
+        dlg.setMinimumWidth(440)
+        pal = dlg.palette()
+        pal.setColor(pal.ColorRole.Window, QColor("#1B1F25"))
+        dlg.setPalette(pal)
+        dlg.setAutoFillBackground(True)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(10)
+        dlg.lbl_step = QLabel("")
+        dlg.lbl_step.setStyleSheet("font-weight: 600; font-size: 13px;")
+        dlg.lbl_text = QLabel("")
+        dlg.lbl_text.setWordWrap(True)
+        dlg.bar = QProgressBar()
+        dlg.bar.setTextVisible(False)
+        dlg.bar.setFixedHeight(8)
+        dlg.lbl_note = QLabel("You can keep working while this runs. It only happens once.")
+        dlg.lbl_note.setStyleSheet(NOTE_STYLE)
+        dlg.lbl_note.setWordWrap(True)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        dlg.btn_run = QPushButton("Run Auto LV now")
+        dlg.btn_retry = QPushButton("Try again")
+        dlg.btn_cancel = QPushButton("Cancel")
+        for b in (dlg.btn_run, dlg.btn_retry, dlg.btn_cancel):
+            row.addWidget(b)
+        dlg.btn_run.clicked.connect(lambda: (dlg.hide(), self.autocontour()))
+        dlg.btn_retry.clicked.connect(lambda: self.start_model_setup())
+        dlg.btn_cancel.clicked.connect(self._cancel_model_setup)
+        for w in (dlg.lbl_step, dlg.lbl_text, dlg.bar, dlg.lbl_note):
+            lay.addWidget(w)
+        lay.addLayout(row)
+        return dlg
+
+    def _cancel_model_setup(self) -> None:
+        if getattr(self, "_setup_running", False):
+            self._setup_cancel = True
+            self.setup_dialog.lbl_text.setText("Cancelling…")
+        else:
+            self.setup_dialog.hide()
+
+    def _setup_step(self, step) -> None:
+        dlg = self.setup_dialog
+        names = {"model": "Step 1 of 2: the model", "tensorflow": "Step 2 of 2: TensorFlow",
+                 "check": "Checking", "done": "Done"}
+        dlg.lbl_step.setText(names.get(step.stage, ""))
+        if step.total > 0:
+            pct = step.done / step.total
+            dlg.bar.setRange(0, 1000)
+            dlg.bar.setValue(int(1000 * pct))
+            mb = f" ({step.done / 1e6:.0f} of {step.total / 1e6:.0f} MB)" if step.total > 2_000_000 else ""
+            dlg.lbl_text.setText(step.text + mb)
+        else:
+            dlg.bar.setRange(0, 0)  # busy
+            dlg.lbl_text.setText(step.text)
+
+    def _setup_finished(self, ok: bool, message: str) -> None:
+        from .. import autocontour as ac
+        from .. import model_setup
+
+        self._setup_running = False
+        dlg = self.setup_dialog
+        dlg.btn_cancel.setText("Close")
+        dlg.bar.setVisible(False)
+        if ok:
+            ac.reset_workers()  # a fresh model process that sees TensorFlow and the new folder
+            self.set_model_dir("ucl", str(model_setup.default_dir()))
+            self._preloaded = False
+            if not getattr(self, "_testing", False):
+                self._preload_model()  # the first Auto LV click is then quick
+            dlg.lbl_step.setText("Auto-contouring is ready")
+            dlg.lbl_text.setText("Click Auto LV to contour every slice at the frame you're viewing.")
+            dlg.lbl_note.setText("")
+            dlg.btn_run.setVisible(self.session is not None)
+            dlg.btn_retry.setVisible(False)
+            self.lbl_auto.setText("Auto-contouring is ready. Click Auto LV.")
+        else:
+            dlg.lbl_step.setText("Setup stopped" if message != "Cancelled." else "Cancelled")
+            dlg.lbl_text.setText(message if message != "Cancelled." else
+                                 "Nothing half-finished was kept. You can set it up any time from Auto LV.")
+            dlg.btn_run.setVisible(False)
+            dlg.btn_retry.setVisible(True)
+            self.lbl_auto.setText("Auto-contouring isn't set up yet. Click Auto LV to try again.")
+
+    def start_model_setup(self, sync: bool = False) -> None:
+        """Download the model and TensorFlow with progress (non-blocking; sync=True for tests)."""
+        from .. import model_setup
+
+        if getattr(self, "_setup_running", False):
+            self.setup_dialog.show()
+            self.setup_dialog.raise_()
+            return
+        if getattr(self, "setup_dialog", None) is None:
+            self.setup_dialog = self._build_setup_dialog()
+        dlg = self.setup_dialog
+        dlg.btn_run.setVisible(False)
+        dlg.btn_retry.setVisible(False)
+        dlg.btn_cancel.setText("Cancel")
+        dlg.bar.setVisible(True)
+        dlg.lbl_note.setText("You can keep working while this runs. It only happens once.")
+        self._setup_step(model_setup.Step("model", 0, 0, "Starting…"))
+        self._setup_cancel = False
+        self._setup_running = True
+        if not getattr(self, "_testing", False):
+            dlg.show()
+            dlg.raise_()
+
+        def steps():
+            yield from model_setup.run_setup(model_setup.default_dir(), lambda: self._setup_cancel)
+
+        if sync:
+            try:
+                for st in steps():
+                    self._setup_step(st)
+                self._setup_finished(True, "")
+            except model_setup.SetupError as e:
+                self._setup_finished(False, str(e))
+            except Exception as e:  # never leave the dialog spinning
+                self._setup_finished(False, f"Something went wrong: {e}. Details are in {model_setup.log_path()}.")
+            return
+        from napari.qt.threading import create_worker
+
+        worker = create_worker(steps)
+        worker.yielded.connect(self._setup_step)
+        worker.returned.connect(lambda _r: self._setup_finished(True, ""))
+
+        def failed(e):
+            msg = str(e) if isinstance(e, model_setup.SetupError) else \
+                f"Something went wrong: {e}. Details are in {model_setup.log_path()}."
+            self._setup_finished(False, msg)
+
+        worker.errored.connect(failed)
+        self._setup_worker = worker
+        worker.start()
 
     def autocontour_pairs(self) -> list[tuple[int, int]]:
         """Which (slice, frame) images Auto-contour does: the frame being viewed on every slice. When that
@@ -2755,8 +2955,11 @@ class TraceCMRWidget(QWidget):
 
         if self.session is None:
             return
-        self._sync_labels()
         key = self._model_keys[self.cmb_model.currentIndex()]
+        if not self.model_ready(key):
+            self.offer_model_setup()
+            return
+        self._sync_labels()
         other = None
         all_frames = self.chk_all_frames.isChecked()
         pairs = self.autocontour_pairs()

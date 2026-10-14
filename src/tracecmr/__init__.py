@@ -13,5 +13,5 @@ for _k, _v in list(_os.environ.items()):
 
 from .io import CardiacImage, load_nifti, save_nifti, sanity_check
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __all__ = ["CardiacImage", "load_nifti", "save_nifti", "sanity_check"]

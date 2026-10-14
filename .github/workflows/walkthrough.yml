@@ -20,9 +20,13 @@ on:
       mouse_id:
         description: Drive file ID of the test mouse (Mouse1.h5)
         default: 1JcuvxNT-8VfBdM8WBT-mquSCxJMGJ-9-
+      from_run:
+        description: Test the installers from this "installers" run instead of Drive (run ID; blank = Drive)
+        default: ""
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   tester:
@@ -33,9 +37,11 @@ jobs:
           - os: windows-latest
             label: windows
             ext: exe
+            artifact: TraceCMR-windows
           - os: macos-latest
             label: macos
             ext: pkg
+            artifact: TraceCMR-macos-arm64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -43,16 +49,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Installer from a GitHub build (checked before it goes on Drive)
+        if: inputs.from_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: built
+          run-id: ${{ inputs.from_run }}
+          github-token: ${{ github.token }}
+
       - name: Download from Google Drive, like a tester
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          if [ -n "${{ inputs.from_run }}" ]; then
+            f=$(ls built/*.${{ matrix.ext }} | head -1); cp "$f" "TraceCMR-installer.${{ matrix.ext }}"
+            note notice "installer" "from build run ${{ inputs.from_run }}: $(basename "$f") $(wc -c < "$f") bytes"
+          fi
           id=${{ matrix.label == 'windows' && inputs.windows_id || inputs.mac_id }}
           # 1. the page's link: for a large file Drive answers with its "can't scan for viruses" page
           curl -sSL -o first.html "https://drive.google.com/uc?export=download&id=$id"
           note notice "page link answers with" "$(file -b first.html 2>/dev/null); $(grep -o '<title>[^<]*' first.html | head -1); $(grep -o 'Download anyway' first.html | head -1)"
           # 2. what "Download anyway" fetches
           start=$(date +%s)
-          curl -sSL -o "TraceCMR-installer.${{ matrix.ext }}" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+          [ -n "${{ inputs.from_run }}" ] || curl -sSL -o "TraceCMR-installer.${{ matrix.ext }}" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
           size=$(wc -c < "TraceCMR-installer.${{ matrix.ext }}")
           note notice "installer download" "$size bytes in $(( $(date +%s) - start )) s; $(head -c 4 TraceCMR-installer.${{ matrix.ext }} | od -An -c | tr -s " ")"
           [ "$size" -gt 200000000 ] || { note error "download" "installer too small: $size bytes"; exit 1; }
@@ -114,6 +133,18 @@ jobs:
           cat walk2.txt
           mv walk.txt walk_first_try.txt; mv walk2.txt walk.txt
 
+      - name: Auto-contour setup and accuracy (headless, as the app does it)
+        id: auto
+        if: always() && env.PY != ''
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          set +e
+          start=$(date +%s)
+          "$PY" scripts/check_autocontour.py Mouse1.h5 autocontour.json > auto.txt 2>&1; rc=$?
+          cat auto.txt
+          note notice "auto-contour (${{ matrix.label }}), $(( $(date +%s) - start )) s, exit $rc" "$(grep -v '^ *\"steps\"' auto.txt | tail -n 30 | cut -c1-200)"
+          exit $rc
+
       - name: Report
         if: always()
         run: |
@@ -125,7 +156,7 @@ jobs:
       - name: Push screenshots to branch walkthrough/${{ matrix.label }}
         if: always()
         run: |
-          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt install_log.txt prefix_listing.txt out/ 2>/dev/null; true
+          mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json out/ 2>/dev/null; true
           cd out
           git init -q -b "walkthrough/${{ matrix.label }}"
           git config user.name "walkthrough bot"; git config user.email "actions@github.com"

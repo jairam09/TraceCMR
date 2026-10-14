@@ -33,9 +33,13 @@ same package set used during development, rather than conda-forge's Qt builds.
 ## Models
 
 No model weights are included, on purpose: each published model keeps its own licence (UCL: GPL-3.0; Calico:
-MIT) and is downloaded by the user. Auto-contour also needs TensorFlow (about 400 MB): after installing, run
-**set_up_auto_contour.bat** (Windows) or **set_up_auto_contour.command** (Mac) in the TraceCMR folder (needs
-internet). Everything else works without it.
+MIT). The first click on **Auto LV** offers a one-time setup that downloads UCL's model from the authors'
+repository (checked against their published SHA-256) and installs TensorFlow from PyPI, about 500 MB in all,
+with progress and a Cancel button (`src/tracecmr/model_setup.py`). Settings → "Set up auto-contouring…" does the
+same. Everything else works without it.
+
+The wheels are built with `h5py<3.15`, the range TensorFlow 2.21 accepts, so setting up auto-contour adds
+TensorFlow without replacing packages the app already uses.
 
 ## Unsigned installers: what testers will see
 
