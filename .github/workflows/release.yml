@@ -1,17 +1,19 @@
-# Publish a TraceCMR version: push a tag like v0.3.5 and this builds everything, tests it on clean machines, and
-# only then publishes a GitHub release with:
+# Publish a TraceCMR version. Builds everything, tests it on clean machines, and only then publishes a GitHub
+# release with:
 #   TraceCMR-Windows.exe, TraceCMR-macOS.pkg   the full installers (same names every time, so the download links
 #                                               .../releases/latest/download/TraceCMR-Windows.exe never change)
 #   tracecmr-<version>-py3-none-any.whl         the patch: TraceCMR's own code, which installed copies update to
 #   latest.json                                 what the app's updater reads (version, notes, wheel hash, needs)
 #
-# Steps: bump the version (pyproject.toml, src/tracecmr/__init__.py, installer/construct.yaml), add a
+# How: bump the version (pyproject.toml, src/tracecmr/__init__.py, installer/construct.yaml), add a
 # "## [x.y.z] - date" section with short bullets to CHANGELOG.md (they become the release notes and the "What's
-# new" in the app), commit, then `git tag vx.y.z && git push origin vx.y.z`.
+# new" in the app), commit and push. Then GitHub -> Actions -> "release" -> "Run workflow" (it tags vX.Y.Z on
+# the commit it tested), or push a tag vX.Y.Z yourself.
 
 name: release
 
 on:
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
@@ -20,10 +22,31 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$v" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but pyproject.toml says $v"; exit 1; fi
+          grep -q "__version__ = \"$v\"" src/tracecmr/__init__.py || { echo "::error::src/tracecmr/__init__.py is not $v"; exit 1; }
+          grep -q "^version: $v" installer/construct.yaml || { echo "::error::installer/construct.yaml is not $v"; exit 1; }
+          if gh release view "v$v" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::release v$v already exists: bump the version first"; exit 1; fi
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          echo "::notice title=release::v$v from ${GITHUB_SHA::7}"
+
   wheel:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +56,7 @@ jobs:
       - name: Patch wheel, latest.json and release notes
         run: |
           python -m pip wheel -q --no-deps -w dist .
-          python scripts/release_manifest.py dist/*.whl --tag "${GITHUB_REF_NAME}" --out dist/latest.json --notes-md dist/notes.md
+          python scripts/release_manifest.py dist/*.whl --tag "${{ needs.version.outputs.tag }}" --out dist/latest.json --notes-md dist/notes.md
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
@@ -42,6 +65,7 @@ jobs:
           if-no-files-found: error
 
   installers:
+    needs: version
     uses: ./.github/workflows/installers.yml
 
   test:
@@ -51,7 +75,7 @@ jobs:
       this_run: true
 
   publish:
-    needs: [wheel, installers, test]
+    needs: [version, wheel, installers, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -61,16 +85,19 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           ls -la art
           test -f art/TraceCMR-Windows.exe && test -f art/TraceCMR-macOS.pkg && test -f art/latest.json
-          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --latest \
-            --title "TraceCMR ${GITHUB_REF_NAME#v}" --notes-file art/notes.md \
+          gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" --latest \
+            --title "TraceCMR ${TAG#v}" --notes-file art/notes.md \
             art/TraceCMR-Windows.exe art/TraceCMR-macOS.pkg art/tracecmr-*.whl art/latest.json
 
   check-public:
-    needs: publish
+    needs: [version, publish]
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - name: The public links answer the way the app and the beta page expect
         run: |
@@ -78,7 +105,7 @@ jobs:
           base="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
           for i in 1 2 3 4 5 6; do curl -sSfL -o latest.json "$base/latest.json" && break; sleep 10; done
           v=$(python3 -c "import json; print(json.load(open('latest.json'))['version'])")
-          [ "$v" = "${GITHUB_REF_NAME#v}" ] || { note error "latest.json" "says $v, expected ${GITHUB_REF_NAME#v}"; exit 1; }
+          [ "$v" = "${TAG#v}" ] || { note error "latest.json" "says $v, expected ${TAG#v}"; exit 1; }
           url=$(python3 -c "import json; print(json.load(open('latest.json'))['wheel']['url'])")
           want=$(python3 -c "import json; print(json.load(open('latest.json'))['wheel']['sha256'])")
           curl -sSfL -o patch.whl "$url"
@@ -89,4 +116,4 @@ jobs:
             [ "$n" -gt 200000000 ] || { note error "$f" "only $n bytes"; exit 1; }
             echo "$f: $n bytes"
           done
-          note notice "release ${GITHUB_REF_NAME}" "latest.json $v; wheel sha256 ok; both installers download from $base"
+          note notice "release $TAG" "latest.json $v; wheel sha256 ok; both installers download from $base"

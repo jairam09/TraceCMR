@@ -11,7 +11,8 @@ Nothing of the user's (scans, contours, results) lives in the install folder.
 
 ## Releases (normal route)
 
-Push a version tag (`git tag v0.3.5 && git push origin v0.3.5`). The **release** workflow builds both
+Bump the version and add its CHANGELOG section, push, then GitHub → Actions → **release** → **Run workflow**
+(or push a tag `v0.3.5`). The **release** workflow builds both
 installers and the patch wheel, tests them on clean Windows and Mac machines (install, the first session, Auto
 LV setup, and patch updates including a rollback), and only then publishes a GitHub release. The installers keep
 the same names every release, so `https://github.com/jairam09/TraceCMR/releases/latest/download/TraceCMR-Windows.exe`
