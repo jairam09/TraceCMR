@@ -155,6 +155,7 @@ jobs:
 
       - name: Push screenshots to branch walkthrough/${{ matrix.label }}
         if: always()
+        continue-on-error: true  # bookkeeping: never marks the test itself as failed
         run: |
           mkdir -p out && cp -r shots/. out/ 2>/dev/null; cp walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json out/ 2>/dev/null; true
           cd out
