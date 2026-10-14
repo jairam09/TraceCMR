@@ -178,7 +178,7 @@ jobs:
         run: |
           note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
           if ! "$PY" -c "import tracecmr.updater"; then note notice "updates" "this installer predates patch updates: skipped"; exit 0; fi
-          if [ ! -d wheel ]; then python -m pip wheel -q --no-deps -w wheel . ; fi
+          if [ ! -d wheel ]; then python3 -m pip wheel -q --no-deps -w wheel . || python -m pip wheel -q --no-deps -w wheel . ; fi
           base=$(ls wheel/*.whl | head -1)
           read -r next broken good needs < <("$PY" -c "import tracecmr as t; a,b,c=(int(x) for x in t.__version__.split('.')[:3]); print(f'{a}.{b}.{c+1} {a}.{b}.98 {a}.{b}.99 {a}.{b+1}.0')" | tr -d '\r')
           "$PY" scripts/make_test_patches.py "$base" patches_gui "$next"
@@ -232,10 +232,17 @@ jobs:
         if: always()
         continue-on-error: true  # bookkeeping: never marks the test itself as failed
         run: |
-          mkdir -p out && cp -r shots/. out/ 2>/dev/null
-          cp walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json update*.txt update*.json update_log.txt out/ 2>/dev/null; true
-          cd out
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | sed -e 's/%/%25/g' | tr '\r' ' ' | awk 'BEGIN{ORS="%0A"}1')"; }
+          set +e
+          mkdir -p out
+          cp -R shots/. out/ 2>/dev/null
+          for f in walk*.txt install_log.txt prefix_listing.txt auto.txt autocontour.json update*.txt update*.json update_log.txt; do
+            [ -f "$f" ] && cp "$f" out/
+          done
+          cd out || exit 0
           git init -q -b "walkthrough/${{ matrix.label }}"
           git config user.name "walkthrough bot"; git config user.email "actions@github.com"
           git add -A && git commit -qm "Walkthrough ${{ matrix.label }} $(date -u +%FT%TZ)" || exit 0
-          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/walkthrough/${{ matrix.label }}"
+          msg=$(git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/walkthrough/${{ matrix.label }}" 2>&1) \
+            || { note warning "screenshots not pushed" "$msg"; exit 1; }
+          note notice "screenshots" "branch walkthrough/${{ matrix.label }}: $(ls | wc -l | tr -d ' ') files"
