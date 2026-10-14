@@ -41,6 +41,10 @@ MEASURES = ("edv_ul", "esv_ul", "sv_ul", "ef_pct", "mass_ed_mg")
 
 def test_mice(ucl_dir: Path) -> list[str]:
     ids = sorted({p.stem for p in ucl_dir.glob("Mouse*.h5")})
+    if (ucl_dir / "ids.json").exists():  # only some mice downloaded: the full list of 130 IDs, for the split
+        import json
+
+        ids = sorted(json.loads((ucl_dir / "ids.json").read_text()))
     assert len(ids) == 130, f"expected 130 UCL mice, found {len(ids)}"
     np.random.seed(42)
     shuffled = np.array(ids)

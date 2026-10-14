@@ -2294,6 +2294,30 @@ def test_settings_and_help_offer_updates(qtbot):
         viewer.close()
 
 
+def test_steadier_auto_lv_setting(qtbot, monkeypatch):
+    """Settings -> "Steadier Auto LV" (on by default) turns the 8-orientation average on and off for the model
+    process, and is remembered."""
+    from tracecmr import autocontour as ac
+    from tracecmr.app import _widget as W
+
+    monkeypatch.setenv("TRACECMR_TTA", "1")
+    reset = []
+    monkeypatch.setattr(ac, "reset_workers", lambda: reset.append(1))
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        was = panel.chk_tta.isChecked()
+        panel.chk_tta.setChecked(False)
+        assert os.environ["TRACECMR_TTA"] == "0" and not ac.tta_enabled() and reset
+        assert ac.epi_cutoff() == ac.EPI_CUTOFF  # the one-pass cutoff goes with one pass
+        assert str(W._settings().value("auto/tta")).lower() in ("false", "0")
+        panel.chk_tta.setChecked(True)
+        assert ac.tta_enabled() and ac.epi_cutoff() == ac.EPI_CUTOFF_TTA
+        panel.chk_tta.setChecked(was)
+    finally:
+        viewer.close()
+
+
 def test_paravision_study_opens_as_one_stack(tmp_path):
     """Open scan on a Bruker ParaVision study folder: the short-axis scans (one per slice) open as one stack,
     the long-axis and localizer scans are listed; picking one scan's folder opens its study; picking a folder of

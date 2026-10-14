@@ -2,6 +2,9 @@
 
 ## [0.3.5] - 2026-10-14
 
+- Auto LV works straight after installing: the installers now include UCL's model and the small library that runs it (ONNX Runtime), so there's no 500 MB download and no TensorFlow. Copies installed earlier get a one-time download of about 40 MB instead. Same contours as before: the converted model gives the same answers as the authors' original.
+- Auto LV is steadier: it looks at each slice in 8 orientations (turned and mirrored) and averages them, so the contours no longer depend on how the scanner oriented the image. On a Bruker scan from another facility, EF from one look ranged from 30% to 73% depending on orientation; averaged, it's the same whatever the orientation. Same accuracy on UCL's test mice. About 8x the work, a few seconds per frame on a laptop; Settings → "Steadier Auto LV" turns it off.
+- Detect (ED/ES from the volume curve) no longer skips the real end-systole when the apical slices have no cavity left at that frame.
 - Opens Bruker scans straight from the scanner: Open scan → pick the ParaVision study folder (the one with numbered scan folders). The short-axis scans become one stack in the right slice order, from their positions. Long-axis and planning scans are listed too. No DICOM export needed.
 - Bruker's DICOM export also opens properly now: one file per short-axis slice is stacked automatically, with Bruker's intensity scaling applied.
 - Updates double-check that the new version installed completely before calling it done; otherwise they put the previous version back.

@@ -797,6 +797,13 @@ class TraceCMRWidget(QWidget):
         self.btn_model_dir = QPushButton("Model folder…")
         self.btn_model_dir.setToolTip("Folder with the selected model (remembered).")
         self.chk_all_frames = QCheckBox("Contour every frame (slow; lets Detect find ED/ES)")
+        self.chk_tta = QCheckBox("Steadier Auto LV: average 8 orientations of each slice (about 8x slower)")
+        self.chk_tta.setToolTip("The model looks at each slice turned and flipped 8 ways and averages what it sees, "
+                                "so the contours no longer depend on how the scanner oriented the image. Same "
+                                "accuracy on UCL's test mice; much steadier on scans from other scanners.")
+        self.chk_tta.setChecked(str(_settings().value("auto/tta", True)).lower() in ("true", "1"))
+        os.environ["TRACECMR_TTA"] = "1" if self.chk_tta.isChecked() else "0"
+        self.chk_tta.toggled.connect(self._tta_toggled)
 
         self.chk_raw = QCheckBox("Open UCL files as raw cines (hide the expert contours)")
         self.chk_smooth = QCheckBox("Smooth papillary muscles into the blood pool (experimental)")
@@ -818,11 +825,13 @@ class TraceCMRWidget(QWidget):
         row.addWidget(self.btn_model_dir)
         gl.addLayout(row)
         self.btn_setup_model = QPushButton("Set up auto-contouring…")
-        self.btn_setup_model.setToolTip("One-time download of UCL's model and the library that runs it (about 35 MB). "
-                                         "Not needed with the TraceCMR installers from 0.3.5 on.")
+        from ..model_setup import DOWNLOAD_MB
+
+        self.btn_setup_model.setToolTip(f"One-time download of UCL's model and the library that runs it (about "
+                                         f"{DOWNLOAD_MB} MB). Not needed with the TraceCMR installers from 0.3.5 on.")
         self.btn_setup_model.clicked.connect(lambda: self.start_model_setup())
         gl.addWidget(self.btn_setup_model)
-        for w in (self.chk_all_frames, self.chk_smooth, self.lbl_conv):
+        for w in (self.chk_all_frames, self.chk_tta, self.chk_smooth, self.lbl_conv):
             gl.addWidget(w)
         sl.addWidget(g)
         g = QGroupBox("Editing")
@@ -2788,11 +2797,12 @@ class TraceCMRWidget(QWidget):
 
     # ---------- one-click setup of auto-contouring (model_setup.py) ----------
 
-    @staticmethod
-    def _tensorflow_present() -> bool:
-        from .. import model_setup
+    def _tta_toggled(self, on: bool) -> None:
+        from .. import autocontour as ac
 
-        return model_setup.tensorflow_present()
+        _settings().setValue("auto/tta", bool(on))
+        os.environ["TRACECMR_TTA"] = "1" if on else "0"
+        ac.reset_workers()  # the model process reads this when it starts
 
     def model_ready(self, key: str = "ucl") -> bool:
         from .. import autocontour as ac

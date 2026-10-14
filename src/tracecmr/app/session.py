@@ -393,6 +393,10 @@ class Session:
                 flags.setdefault(k, f"models disagree (overlap {d:.0%})")
         self.label = lab
         self.label_detailed = lab.copy()
+        self.model_label = lab.astype(np.uint8)  # what the model drew, and where it looked (even where it found no LV)
+        self.model_ran = np.zeros(lab.shape[2:], bool)
+        self.model_ran[:, frames] = True
+        self.model_unsure = {}
         self.papillary = ac.MODELS[model].papillary
         self.contoured_by = ac.MODELS[model].label
         self.flags = flags
@@ -543,10 +547,16 @@ class Session:
         )
 
     def auto_ed_es(self) -> str:
-        """ED/ES = frames with the largest/smallest drawn blood pool among frames contoured on (nearly) all slices."""
+        """ED/ES = frames with the largest/smallest drawn blood pool among frames contoured on (nearly) all slices.
+
+        A slice counts as contoured at a frame if it has a contour there or Auto LV looked at it: at end-systole
+        the model rightly finds no cavity on the apical slices, and those frames must stay in the running."""
         blood = (self.label == L.LV_BLOODPOOL).reshape(-1, *self.label.shape[2:])
         drawn = (self.label > 0).reshape(-1, *self.label.shape[2:])
-        n_slices = drawn.any(axis=0).sum(axis=0)  # per frame
+        done = drawn.any(axis=0)  # (slice, frame)
+        if self.model_ran is not None and self.model_ran.shape == done.shape:
+            done = done | self.model_ran
+        n_slices = done.sum(axis=0)  # per frame
         if n_slices.max() == 0:
             return "No contours yet: draw them or run Auto LV."
         cand = np.flatnonzero(n_slices >= n_slices.max() - 1)

@@ -39,14 +39,18 @@ same package set used during development, rather than conda-forge's Qt builds.
 
 ## Models
 
-No model weights are included, on purpose: each published model keeps its own licence (UCL: GPL-3.0; Calico:
-MIT). The first click on **Auto LV** offers a one-time setup that downloads UCL's model from the authors'
-repository (checked against their published SHA-256) and installs TensorFlow from PyPI, about 500 MB in all,
-with progress and a Cancel button (`src/tracecmr/model_setup.py`). Settings → "Set up auto-contouring…" does the
-same. Everything else works without it.
+Auto LV works straight after installing. The installer carries UCL's published model (Shah et al., JCMR 2026),
+converted unchanged to ONNX so it runs without TensorFlow (`scripts/convert_ucl_onnx.py`, checked to give the same
+probabilities and labels as the authors' TensorFlow model), plus ONNX Runtime to run it: about 35 MB more in the
+installer. The workflow fetches the model from TraceCMR's `ucl-model-1` release and checks it against the SHA-256
+pinned in `src/tracecmr/ucl_model.json` (`scripts/fetch_ucl_model.py`); `post_install` puts it in
+`<TraceCMR>/models/` with the authors' licence (GPL-3.0) beside it, and runs it once (`AUTO LV OK` in
+`install_log.txt`). The model is a separate file under its own licence, shipped alongside TraceCMR (MIT); TraceCMR
+contains none of the authors' code.
 
-The wheels are built with `h5py<3.15`, the range TensorFlow 2.21 accepts, so setting up auto-contour adds
-TensorFlow without replacing packages the app already uses.
+Copies installed before 0.3.5 (and patched since) don't have it: their first click on Auto LV offers a one-time
+download of the same model and ONNX Runtime, about 40 MB (`src/tracecmr/model_setup.py`). The CI walkthrough
+checks both: ready out of the box, and the one-click setup with the model and ONNX Runtime removed.
 
 ## Unsigned installers: what testers will see
 

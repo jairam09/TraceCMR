@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from tracecmr import labels as L
 from tracecmr.app.session import Session
 from tracecmr.synthetic import tapered_phantom
 from tracecmr.volumes import compute_function
@@ -25,6 +26,28 @@ def test_auto_ed_es_and_order():
     nz = s.image.shape[2]
     assert s.order == list(range(nz - 1, -1, -1))  # stored apex-first, so reversed
     assert s.order_warnings() == []
+
+
+def test_detect_keeps_end_systole_when_the_apex_empties():
+    """At end-systole the apical slices often have no cavity left, so Auto LV draws nothing there. Detect must
+    still consider that frame (the model looked at those slices), not skip to a frame with more slices drawn."""
+    from tracecmr.app.session import Session
+
+    nz, nt = 5, 4
+    yy, xx = np.mgrid[:32, :32]
+    label = np.zeros((32, 32, nz, nt), np.uint8)
+    for t, r in enumerate([8, 6, 4, 7]):
+        for z in range(nz):
+            if t == 2 and z in (0, nz - 1):
+                continue  # no LV found at the ends at end-systole
+            ring = (yy - 16) ** 2 + (xx - 16) ** 2
+            label[:, :, z, t][ring <= (r + 2) ** 2] = L.LV_MYOCARDIUM
+            label[:, :, z, t][ring <= r ** 2] = L.LV_BLOODPOOL
+    s = Session(image=np.zeros(label.shape, np.float32), label=label, spacing=(0.1, 0.1, 1.0))
+    s.auto_ed_es()
+    assert (s.ed_frame, s.es_frame) == (0, 1)  # hand-drawn: frame 2 may just be unfinished, so it's left out
+    s.model_ran = np.ones((nz, nt), bool)  # Auto LV contoured every frame
+    assert "ES = frame 2" in s.auto_ed_es() and (s.ed_frame, s.es_frame) == (0, 2)
 
 
 def test_reversed_order_warns_but_still_computes():

@@ -206,7 +206,7 @@ def _pip_install(cancelled: Callable[[], bool], spec: str = RUNTIME) -> Iterator
                     pass
                 continue
             _log("pip: " + line)
-            if line.startswith(("Collecting", "Downloading")):
+            if line.startswith(("Collecting", "Downloading")) and ".metadata" not in line:
                 pkg = line.split()[1].split("/")[-1][:60]
                 text = f"Installing ONNX Runtime: getting {pkg}"
                 yield Step("runtime", 0, 0, text)

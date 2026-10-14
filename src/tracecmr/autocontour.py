@@ -137,6 +137,9 @@ def _load_ucl():
         return _load_ucl_locked()
 
 
+ONNX_BATCH = 8  # images per model call (all frames x slices x 8 orientations at once would need >10 GB)
+
+
 def _load_ucl_locked():
     global _ucl_model
     if _ucl_model is None and ucl_backend() == "onnx":
@@ -147,7 +150,15 @@ def _load_ucl_locked():
         opts.log_severity_level = 3
         sess = ort.InferenceSession(str(ucl_onnx_path()), sess_options=opts, providers=["CPUExecutionProvider"])
         name = sess.get_inputs()[0].name
-        _ucl_model = lambda x: sess.run(None, {name: np.ascontiguousarray(x, np.float32)})[0]  # noqa: E731
+
+        def run(x):  # a few images at a time: about 30 MB each, and larger batches are no faster on a CPU
+            x = np.ascontiguousarray(x, np.float32)
+            if len(x) == 0:
+                return np.zeros(x.shape[:3] + (3,), np.float32)
+            return np.concatenate([sess.run(None, {name: x[i:i + ONNX_BATCH]})[0]
+                                   for i in range(0, len(x), ONNX_BATCH)])
+
+        _ucl_model = run
     if _ucl_model is None:
         d = _dir("TRACECMR_UCL_DIR", "ucl")
         os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -235,13 +246,12 @@ def _ucl_probs(vol_xyz: np.ndarray, spacing) -> np.ndarray:
     work = vol_xyz if f == (1.0, 1.0) else ndimage.zoom(vol_xyz, (f[0], f[1], 1), order=1)
     pad = _fit(work, 256)
     x = np.stack([_minmax(s) for s in np.moveaxis(pad.arr, 2, 0)])[..., None].astype(np.float32)
-    if tta_enabled():  # the same slices in all 8 orientations, in one batch; each result turned back, averaged
-        n = x.shape[0]
-        views = [_dihedral(x, k, f) for f in (False, True) for k in range(4)]
-        out = np.asarray(model(np.concatenate(views)), dtype=np.float32)
-        back = [_dihedral_undo(out[i * n:(i + 1) * n], k, f)
-                for i, (f, k) in enumerate((f, k) for f in (False, True) for k in range(4))]
-        p = np.mean(back, axis=0)
+    if tta_enabled():  # the same slices in all 8 orientations; each result turned back, then averaged
+        p = np.zeros(x.shape[:3] + (3,), np.float32)
+        for flip in (False, True):
+            for k in range(4):
+                p += _dihedral_undo(np.asarray(model(_dihedral(x, k, flip)), dtype=np.float32), k, flip)
+        p /= 8
     else:
         p = np.asarray(model(x), dtype=np.float32)
     prob = np.moveaxis(p, 0, 2)  # (256, 256, slice, 3)

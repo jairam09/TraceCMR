@@ -2,6 +2,23 @@
 
 One entry per work session: date, what you tried, what happened, what you decided. Newest at the top.
 
+## 2026-10-14 (Auto LV built in, steadier; 0.3.5)
+
+- Goal: Auto LV working straight after install for outside labs, and stable on scans from other scanners.
+- UCL's Keras model converted to ONNX (tf2onnx, opset 17, main output only) and published once as `ucl-model-1`; SHA-256 pinned in `ucl_model.json` (tf2onnx output is not byte-identical run to run, so it is converted once and pinned). Check before publishing: 3 UCL mice, every slice at ED/ES, largest probability difference 1.2e-5, no label differences. Through the app pipeline on 40 UCL mice (15 validation, 25 test): every measure identical to TensorFlow. ONNX Runtime is ~15-21 MB vs ~500 MB for TensorFlow, so the installers now carry the model and the runtime (+35 MB) and the one-click setup for older copies shrinks to ~40 MB.
+- Test-time augmentation (average of the 8 in-plane orientations) on the Bruker facility scan: one pass gave EF 29.9-73.2% and EDV 152-192 uL across the 8 orientations of the input; averaged, EF 59.2% / EDV 181.9 uL from every orientation, identical contours (Dice 1.000). Steady, but not right: the averaged contours still have the myocardium in 2-3 pieces on basal slices and no cavity on 4 of 8 slices at ES. The scans are named GAD19min-GAD44min, i.e. acquired after gadolinium; enhanced myocardium may read as blood to a model trained on non-contrast cines. Present Auto LV as a draft; the cure for this scan type is training data, not tricks.
+- TTA on UCL's own data is a wash (expected: in distribution). Epicardium cutoff re-chosen for TTA on the 15 validation mice (0.6 gives mass bias -0.1 mg; 0.9, the one-pass value, gives -11.4). Test mice, expert frames, one pass vs TTA: EF -1.1 (2.9) vs -1.1 (3.0), EDV -2.4 (7.0) vs -2.4 (6.3), mass -1.0 (13.1) vs +1.7 (13.6), blood Dice 0.907 vs 0.912 at ED. Validation mice: one mouse (Mouse128) worse with TTA (EF error -15 -> -21). Kept TTA as the default for its stability on outside data; Settings can turn it off.
+- Fully automatic on the 25 test mice (every frame contoured, ED/ES by Detect, TTA): EF +0.3 (3.2), worst -6.8; EDV -2.6 (5.9); mass +1.6 (13.5). ED within a frame of the expert in 88%, ES in 64%.
+- Bug found while taking the README screenshot: Detect only considered frames contoured on (nearly) all slices, and at end-systole the model finds no cavity on the apical slices, so the true ES could be skipped (Mouse1: ES 6 instead of 9, EF 58.5% vs 71.3%; expert 69.6%). Fixed: a slice counts wherever Auto LV looked. No change on the 25 test mice.
+- Bug found by the end-to-end run: TTA sent all frames x slices x 8 orientations to ONNX Runtime in one batch (>11 GB). Now 8 images per call (~30 MB each; larger batches were no faster on CPU) and the orientations are accumulated one at a time.
+
+## 2026-10-14 (first real Bruker study)
+
+- Facility test scan (Bruker, ParaVision 360, IntraGate FLASH bright-blood cine): 8 short-axis scans of one slice each (128x128, 0.2 mm, 1 mm slices, 16 frames, 8 ms apart), plus 4-chamber and 2-chamber cines and planning scans. Both the raw study folder (2dseq + visu_pars) and its DICOM export now open as one 8-slice stack; the two give identical images (max difference 0), slice order and timing.
+- The old DICOM path would not have stacked it: Bruker's enhanced export keeps orientation and position in the shared functional groups (read only per frame before) and the rescale in PixelValueTransformationSequence (ignored before).
+- A hand-typed scan name gave the wrong slice position (named S-4.5, actually at -7.0 mm). Slice order comes from geometry only.
+- Auto LV (UCL model) on this scan: finds the LV on 7 of 8 slices in most frames, but is not stable. Rotating or mirroring the input (which should not change anything) moves EDV between about 150 and 190 uL and EF between 30% and 69%. Not trustworthy on this data as it is: present Auto LV as a starting point to correct, and test on outside data before claiming accuracy. Options: average the model over rotations and flips (test-time augmentation) for stability; fine-tune on contoured facility scans once there are some.
+
 ## 2026-10-07 (auto-contour in the app)
 
 - Built `autocontour.py` (UCL and Calico backends loaded from the user's own downloads; sanity flags; two-model disagreement flags) and the app's Auto-contour button, raw-cine opening, and a volume-over-time plot.
@@ -90,10 +107,3 @@ One entry per work session: date, what you tried, what happened, what you decide
 - Started the project. Repo scaffold created: NIfTI loader with label remapping (ACDC supported), sanity checks, synthetic ring phantom, overlay figures, 14 tests passing.
 - Phantom check: blood pool 126.4 µL by voxel counting vs 125.7 µL exact (0.6% pixelation error at 0.1 mm pixels).
 - Next: install on laptop (SETUP.md), push to GitHub, email UCL authors about the mouse dataset, register for ACDC and run `check_dataset.py` on a few subjects.
-
-## 2026-10-14 (first real Bruker study)
-
-- Facility test scan (Bruker, ParaVision 360, IntraGate FLASH bright-blood cine): 8 short-axis scans of one slice each (128x128, 0.2 mm, 1 mm slices, 16 frames, 8 ms apart), plus 4-chamber and 2-chamber cines and planning scans. Both the raw study folder (2dseq + visu_pars) and its DICOM export now open as one 8-slice stack; the two give identical images (max difference 0), slice order and timing.
-- The old DICOM path would not have stacked it: Bruker's enhanced export keeps orientation and position in the shared functional groups (read only per frame before) and the rescale in PixelValueTransformationSequence (ignored before).
-- A hand-typed scan name gave the wrong slice position (named S-4.5, actually at -7.0 mm). Slice order comes from geometry only.
-- Auto LV (UCL model) on this scan: finds the LV on 7 of 8 slices in most frames, but is not stable. Rotating or mirroring the input (which should not change anything) moves EDV between about 150 and 190 uL and EF between 30% and 69%. Not trustworthy on this data as it is: present Auto LV as a starting point to correct, and test on outside data before claiming accuracy. Options: average the model over rotations and flips (test-time augmentation) for stability; fine-tune on contoured facility scans once there are some.
