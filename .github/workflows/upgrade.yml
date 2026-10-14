@@ -1,0 +1,96 @@
+# What a tester on an older beta (from Google Drive) has to do to get the latest release: install the old one,
+# make a results folder, run the new installer over it (does that work?), and if not, remove the old copy the
+# documented way (Windows: its uninstaller; Mac: delete the folder and the app) and install again. Checks the
+# results folder survives and the new copy runs.
+#
+# Actions -> "upgrade" -> "Run workflow" (old installer Drive IDs; the new one is the latest GitHub release).
+
+name: upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows_id:
+        description: Drive file ID of the old Windows installer
+        default: 1rpYihznncmLtifB0-mUTj7Vulu8SiwJR
+      mac_id:
+        description: Drive file ID of the old macOS installer
+        default: 1uTSyuDHCRBPl0MAF6H8FGhWVK2vEXVf5
+
+jobs:
+  upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Get the old (Drive) and new (GitHub release) installers
+        run: |
+          if [ "${{ matrix.label }}" = windows ]; then id=${{ inputs.windows_id }}; ext=exe; new=TraceCMR-Windows.exe
+          else id=${{ inputs.mac_id }}; ext=pkg; new=TraceCMR-macOS.pkg; fi
+          curl -sSL -o "old.$ext" "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+          curl -sSfL -o "new.$ext" "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/$new"
+          ls -la old.* new.*
+
+      - name: Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Note($t, $m) { Write-Output "::notice title=$t::$($m -replace "`r",'' -replace "`n",' | ')" }
+          $prefix = "$env:USERPROFILE\TraceCMR"
+          $res = "$env:USERPROFILE\Documents\TraceCMR results\Mouse1"
+          Start-Process -Wait -FilePath .\old.exe -ArgumentList "/InstallationType=JustMe","/RegisterPython=0","/S","/D=$prefix"
+          $old = & "$prefix\python.exe" -c "import tracecmr; print(tracecmr.__version__)"
+          New-Item -ItemType Directory -Force $res | Out-Null; "keep me" | Out-File "$res\Mouse1.tracecmr.npz"
+          Note "old installed" "$old; uninstaller: $(Get-ChildItem $prefix -Filter 'Uninstall*' | Select-Object -ExpandProperty Name)"
+
+          # 1. the new installer straight over the old one
+          $p = Start-Process -Wait -PassThru -FilePath .\new.exe -ArgumentList "/InstallationType=JustMe","/RegisterPython=0","/S","/D=$prefix"
+          $v = & "$prefix\python.exe" -c "import tracecmr; print(tracecmr.__version__)" 2>&1
+          Note "new over old" "installer exit $($p.ExitCode); TraceCMR now $v"
+
+          if ("$v" -eq "$old") {
+            # 2. uninstall the way Settings -> Apps does (the uninstaller copies itself to Temp and returns at once)
+            $u = Get-ChildItem $prefix -Filter 'Uninstall*.exe' | Select-Object -First 1
+            Start-Process -Wait -FilePath $u.FullName -ArgumentList "/S"
+            for ($i = 0; $i -lt 120 -and (Test-Path "$prefix\python.exe"); $i++) { Start-Sleep 2 }
+            Start-Sleep 5
+            Note "after uninstall" "python.exe left: $(Test-Path "$prefix\python.exe"); folder left: $(Test-Path $prefix); items: $((Get-ChildItem $prefix -ErrorAction SilentlyContinue | Measure-Object).Count)"
+            $p = Start-Process -Wait -PassThru -FilePath .\new.exe -ArgumentList "/InstallationType=JustMe","/RegisterPython=0","/S","/D=$prefix"
+            $v = & "$prefix\python.exe" -c "import tracecmr; print(tracecmr.__version__)" 2>&1
+            Note "uninstall, then new" "installer exit $($p.ExitCode); TraceCMR now $v"
+          }
+          $kept = Test-Path "$res\Mouse1.tracecmr.npz"
+          $desk = [Environment]::GetFolderPath('Desktop')
+          Note "result" "TraceCMR $v; results kept: $kept; Desktop shortcut: $(Test-Path "$desk\TraceCMR.lnk")"
+          if ("$v" -eq "$old" -or -not $kept) { exit 1 }
+
+      - name: macOS
+        if: runner.os == 'macOS'
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | tr '\r\n' '  ')"; }
+          inst() { installer -pkg "$1" -target CurrentUserHomeDirectory > "$1.txt" 2>&1 || sudo installer -pkg "$1" -target / >> "$1.txt" 2>&1; echo $?; }
+          where() { for d in "$HOME/TraceCMR" /Applications/TraceCMR /opt/TraceCMR /var/root/TraceCMR; do [ -d "$d" ] && { echo "$d"; return; }; done; }
+          res="$HOME/Documents/TraceCMR results/Mouse1"
+          inst old.pkg >/dev/null; prefix=$(where)
+          old=$("$prefix/bin/python" -c "import tracecmr; print(tracecmr.__version__)")
+          mkdir -p "$res" && echo "keep me" > "$res/Mouse1.tracecmr.npz"
+          note notice "old installed" "$old in $prefix"
+          rc=$(inst new.pkg); v=$("$(where)/bin/python" -c "import tracecmr; print(tracecmr.__version__)" 2>&1)
+          note notice "new over old" "installer exit $rc; TraceCMR now $v; $(tail -c 600 new.pkg.txt)"
+          if [ "$v" = "$old" ]; then
+            sudo rm -rf "$prefix" "$HOME/Applications/TraceCMR.app"
+            rc=$(inst new.pkg); v=$("$(where)/bin/python" -c "import tracecmr; print(tracecmr.__version__)" 2>&1)
+            note notice "delete, then new" "installer exit $rc; TraceCMR now $v"
+          fi
+          kept=$([ -f "$res/Mouse1.tracecmr.npz" ] && echo yes || echo NO)
+          note notice "result" "TraceCMR $v; results kept: $kept; app: $(ls -d "$HOME/Applications/TraceCMR.app" 2>&1)"
+          [ "$v" != "$old" ] && [ "$kept" = yes ]
