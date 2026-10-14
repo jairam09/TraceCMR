@@ -17,7 +17,7 @@ One entry per work session: date, what you tried, what happened, what you decide
 - Calico model (MIT, 3D, LV+myo+RV) set up: weights from the public repo (checksum matches). Runs on UCL after resampling to 0.13 mm / 0.8 mm; orientation does not matter. CPU only here: ~14 s per frame, so ~5 min per 20-frame scan without a GPU.
 - UCL model (GPL, 2D UNet3+) run on its own 25 held-out test mice (split reproduced from their notebook, seed 42).
 - On those 25 mice: UCL Dice blood 0.91/0.87 (ED/ES), myo 0.84/0.87, EF error mean -1.0 pts (worst 5.7). Calico (21 of the 25 done) Dice blood 0.87/0.85, myo 0.78/0.82, EF error mean -5.0 (worst 72). Calico on 45 mice so far: 4 with |EF error| > 10 pts (one missed ES, three badly dilated hearts).
-- Caveat: UCL's model is on home data (same scanner and lab); the fair test is outside data. Remaining 85 Calico mice to run.
+- Caveat: UCL's model is on home data (same scanner and lab); the fair test is data from another lab and scanner. Remaining 85 Calico mice to run.
 - Provisional plan: UCL model as default (optional separate install because of GPL), Calico as option (RV for the septal reference); flag slices where the two models disagree.
 - Author decision: default analysis convention = papillary muscles in the blood pool (smooth), detailed mask kept for one-click switching.
 
@@ -58,7 +58,7 @@ One entry per work session: date, what you tried, what happened, what you decide
 - Negative thickening in 11 segments, 10 of them basal: ray overlay of Mouse80 shows the top ES slice is a partial ring at the outflow tract. Flagged, not hidden.
 - Papillary spikes visible in ray overlays exactly where predicted (UCL labels papillary as myocardium).
 - Built `dicom.py`. Tests caught a bug: trigger time 0 ms treated as missing -> scrambled time order. Fixed.
-- Next: Segment Pre-clinical AI check; DICOM + Segment contour reader on one real lab file (ask first); wall thickness v2 (chords).
+- Next: Segment Pre-clinical AI check; DICOM + Segment contour reader on one real lab file; wall thickness v2 (chords).
 
 ## 2026-10-06 (base/apex)
 
