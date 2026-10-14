@@ -251,6 +251,14 @@ class RoiTool:
     # ---------- drawing ----------
 
     def _to_px(self, world) -> tuple[float, float]:
+        """Screen (world) position -> image pixels (x, y), through any turn of the picture."""
+        layers = self.panel.viewer.layers
+        if "image" in layers:
+            try:
+                d = layers["image"].world_to_data(tuple(world))
+                return float(d[-1]), float(d[-2])
+            except Exception:
+                pass
         s = self.panel.session
         dx, dy = float(s.spacing[0]), float(s.spacing[1])
         return float(world[-1]) / dx, float(world[-2]) / dy

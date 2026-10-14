@@ -88,6 +88,10 @@ class Session:
     mirror_segments: bool = False  # wall segments: slices seen from the base, not the apex (Settings)
     septum_manual: dict[int, float] = field(default_factory=dict)  # slice -> septum angle set by hand (degrees)
     rois: list = field(default_factory=list)  # regions of interest drawn with the ROI tool (see app/roi.py)
+    # how the picture is turned on screen (app/orient.py): display only, never the pixels or the measurements.
+    # None = not chosen for this mouse yet (the app then uses the last orientation the user picked)
+    view_rotation: float | None = None  # degrees, clockwise
+    view_flip: bool | None = None  # mirrored left-right
     # the editor's interpolation points as the user left them, so reopening shows exactly what was drawn (rebuilding
     # them from pixels smooths sharp tips a little every time); used only on slices whose pixels still match
     saved_curves: dict = field(default_factory=dict)  # (frame, slice, "endo"/"epi"/"rv") -> (n, 2) points
@@ -193,6 +197,7 @@ class Session:
             "papillary": self.papillary, "contoured_by": self.contoured_by,
             "septum_manual": {str(k): float(v) for k, v in self.septum_manual.items()},
             "rois": [dict(r) for r in self.rois],
+            "view_rotation": self.view_rotation, "view_flip": self.view_flip,
             "model_unsure": {f"{t},{z}": [float(v[0]), v[1]] for (t, z), v in self.model_unsure.items()},
         }
         curve_extra = {}
@@ -241,6 +246,9 @@ class Session:
         self.contoured_by = meta.get("contoured_by", "")
         self.septum_manual = {int(k): float(v) for k, v in meta.get("septum_manual", {}).items()}
         self.rois = [dict(r) for r in meta.get("rois", [])]
+        rot, flip = meta.get("view_rotation"), meta.get("view_flip")
+        self.view_rotation = None if rot is None else float(rot)
+        self.view_flip = None if flip is None else bool(flip)
         self.model_unsure = {tuple(int(x) for x in k.split(",")): (float(v[0]), v[1])
                              for k, v in meta.get("model_unsure", {}).items()}
         self.saved_curves, self.saved_hidden, self.saved_curve_hash = {}, set(), {}

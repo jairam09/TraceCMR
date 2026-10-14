@@ -417,6 +417,15 @@ class CurveEditor:
         return max(screen, self.DOT_SIZE / 2 + 0.25)
 
     def _to_px(self, world_pos) -> np.ndarray:
+        """Screen (world) position -> image pixels (x, y), through the layer's scale and any turn of the
+        picture (orient.py), so clicks land on the right pixel however the image is rotated or mirrored."""
+        lay = self.points if self.points is not None else self.shapes
+        if lay is not None:
+            try:
+                d = np.asarray(lay.world_to_data(tuple(world_pos)), dtype=float)
+                return np.array([d[-1], d[-2]])
+            except Exception:
+                pass
         return np.array([world_pos[-1] / self.scale[3], world_pos[-2] / self.scale[2]])
 
     def hit(self, t: int, z: int, p: np.ndarray, tol: float):

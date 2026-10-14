@@ -97,16 +97,31 @@ def crop_box(panel, z: int, cont: dict, crop) -> tuple[int, int, int, int]:
     return heart_box(list(cont.values()), shape)
 
 
+def panel_orientation(panel) -> tuple[float, bool]:
+    """How the main view turns the picture (orient.py): (degrees clockwise, mirrored)."""
+    try:
+        return panel.orientation()
+    except Exception:
+        return 0.0, False
+
+
 def pair_frames(panel, z: int, crop=True) -> dict:
-    """Everything needed to show slice z at ED and ES: the crop box, pixel spacing, contrast window and, per
-    phase, the frame number, cropped image and contours. Shared by the live view and the figures."""
+    """Everything needed to show slice z at ED and ES: the crop box (the window shown), pixel spacing, contrast
+    window, how the picture is turned and, per phase, the frame number, image and contours. When the picture is
+    turned, the image covers a larger source box ("src") so the turned window has no empty corners. Shared by
+    the live view and the figures."""
+    from .orient import grow_box
+
     s = panel.session
     t_ed, t_es = s.t_for(z, "ED"), s.t_for(z, "ES")
     lo, hi = panel_contrast(panel)
     cont = {ph: slice_contours(panel, t, z) for ph, t in (("ED", t_ed), ("ES", t_es))}
     box = crop_box(panel, z, cont, crop)
-    xa, xb, ya, yb = box
-    return {"box": box, "shape": s.image.shape[:2], "dx": float(s.spacing[0]), "dy": float(s.spacing[1]), "lo": lo, "hi": hi,
+    angle, flip = panel_orientation(panel)
+    src = grow_box(box, s.image.shape[:2], angle, flip)
+    xa, xb, ya, yb = src
+    return {"box": box, "src": src, "angle": angle, "flip": flip, "shape": s.image.shape[:2],
+            "dx": float(s.spacing[0]), "dy": float(s.spacing[1]), "lo": lo, "hi": hi,
             "phases": [(ph, t, s.image[xa:xb, ya:yb, z, t].T, cont[ph]) for ph, t in (("ED", t_ed), ("ES", t_es))]}
 
 
@@ -119,19 +134,35 @@ def draw_pair(fig, panel, z: int, contours_on=True, scale_bar=True, crop=True, l
     box = crop_box(panel, z, cont, crop)
     xa, xb, ya, yb = box
     dx, dy = float(s.spacing[0]), float(s.spacing[1])
+    angle, flip = panel_orientation(panel)
+    from .orient import grow_box, is_identity, pixel_matrix_xy
+
+    turned = not is_identity(angle, flip)
+    sxa, sxb, sya, syb = grow_box(box, s.image.shape[:2], angle, flip) if turned else box
     if axes is None:
         fig.clf()
         axes = fig.subplots(1, 2)
         fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01, wspace=0.02)
     for ax, (ph, t) in zip(axes, (("ED", t_ed), ("ES", t_es))):
         ax.clear()
-        img = s.image[xa:xb, ya:yb, z, t].T  # rows = y, columns = x, like the viewer
-        ax.imshow(img, cmap="gray", vmin=lo, vmax=hi, interpolation="nearest" if not panel.smooth_image else "bicubic",
-                  extent=(xa - 0.5, xb - 0.5, yb - 0.5, ya - 0.5), aspect=dy / dx)
+        img = s.image[sxa:sxb, sya:syb, z, t].T  # rows = y, columns = x, like the viewer
+        tr = ax.transData
+        if turned:  # turn about the window's centre, exactly as the main view does
+            from matplotlib.transforms import Affine2D
+
+            m = pixel_matrix_xy(angle, flip, (dx, dy))
+            cx, cy = (xa + xb - 1) / 2.0, (ya + yb - 1) / 2.0
+            off = np.array([cx, cy]) - m @ np.array([cx, cy])
+            tr = Affine2D(np.array([[m[0, 0], m[0, 1], off[0]], [m[1, 0], m[1, 1], off[1]], [0, 0, 1]])) + ax.transData
+        im = ax.imshow(img, cmap="gray", vmin=lo, vmax=hi,
+                       interpolation="nearest" if not panel.smooth_image else "bicubic",
+                       extent=(sxa - 0.5, sxb - 0.5, syb - 0.5, sya - 0.5), aspect=dy / dx)
+        if turned:
+            im.set_transform(tr)
         if contours_on:
             for name, c in cont[ph].items():
                 c = np.vstack([c, c[:1]])
-                ax.plot(c[:, 0], c[:, 1], color=COLOURS[name], linewidth=1.2)
+                ax.plot(c[:, 0], c[:, 1], color=COLOURS[name], linewidth=1.2, transform=tr)
         ax.set_xlim(xa - 0.5, xb - 0.5)
         ax.set_ylim(yb - 0.5, ya - 0.5)
         ax.set_axis_off()
@@ -282,16 +313,20 @@ class PairView:
                 f = self.frames
                 if not f:
                     return None
+                from .orient import matrix_xy
+
                 xa, xb, ya, yb = f["box"]
                 nx, ny = max(xb - xa, 1), max(yb - ya, 1)
                 fx, fy, fw, fh = self._rects()[0]
                 w, h = fw * self.zoom, fh * self.zoom
-                x = fx + (fw - w) / 2 + self.pan[0]
-                y = fy + (fh - h) / 2 + self.pan[1]
-                x0 = xa + (fx - x) / w * nx
-                x1 = xa + (fx + fw - x) / w * nx
-                y0 = ya + (fy - y) / h * ny
-                y1 = ya + (fy + fh - y) / h * ny
+                sx, sy = w / nx, h / ny
+                # the frame's centre and half-size, taken back through the turn into image pixels
+                inv = np.linalg.inv(matrix_xy(f.get("angle", 0.0), f.get("flip", False)))
+                off = inv @ np.array([-self.pan[0], -self.pan[1]])
+                half = np.abs(inv) @ np.array([fw / 2, fh / 2])
+                cx, cy = (xa + xb) / 2 + off[0] / sx, (ya + yb) / 2 + off[1] / sy
+                x0, x1 = cx - half[0] / sx, cx + half[0] / sx
+                y0, y1 = cy - half[1] / sy, cy + half[1] / sy
                 shape = f["shape"]
                 box = (int(max(0, round(x0))), int(min(shape[0], round(x1))),
                        int(max(0, round(y0))), int(min(shape[1], round(y1))))
@@ -341,8 +376,20 @@ class PairView:
                     w, h = fw * self.zoom, fh * self.zoom
                     x = fx + (fw - w) / 2 + self.pan[0]
                     y = fy + (fh - h) / 2 + self.pan[1]
-                    p.drawImage(QRectF(x, y, w, h), qi)
                     sx, sy = w / nx, h / ny  # pixel -> screen
+                    angle, flip = f.get("angle", 0.0), f.get("flip", False)
+                    if angle or flip:  # turn about the window's centre, as the main view does
+                        from qtpy.QtGui import QTransform
+
+                        from .orient import matrix_xy
+
+                        m = matrix_xy(angle, flip)
+                        c = np.array([x + w / 2, y + h / 2])
+                        o = c - m @ c
+                        p.setTransform(QTransform(m[0, 0], m[1, 0], m[0, 1], m[1, 1], o[0], o[1]))
+                    sxa, sxb, sya, syb = f.get("src", f["box"])
+                    p.drawImage(QRectF(x + (sxa - xa) * sx, y + (sya - ya) * sy,
+                                       (sxb - sxa) * sx, (syb - sya) * sy), qi)
                     if self.opts.get("contours_on", True):
                         for name, c in cont.items():
                             path = QPainterPath()
@@ -353,6 +400,7 @@ class PairView:
                             path.closeSubpath()
                             p.setPen(QPen(QColor(COLOURS[name]), 1.6))
                             p.drawPath(path)
+                    p.resetTransform()  # labels and the scale bar stay upright on the frame
                     p.setPen(QColor("white"))
                     font = QFont(p.font())
                     font.setPointSize(11)

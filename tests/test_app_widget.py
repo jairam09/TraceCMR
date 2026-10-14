@@ -2054,3 +2054,64 @@ def test_detect_reports_ed_es_timing_per_slice(qtbot, tmp_path):
         assert "ES varies by" in text and "per slice" in text
     finally:
         viewer.close()
+
+
+def test_rotate_and_mirror_the_picture(qtbot, tmp_path):
+    """Turning the picture is display only: every layer turns together, clicks still land on the right pixel,
+    ED | ES and figures turn the same way, and the choice is saved with the mouse."""
+    from tracecmr.app.compare import save_slice_figure
+    from tracecmr.app.export_images import export_images
+
+    viewer = napari.Viewer(show=False)
+    panel = None
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        before = panel.session.label.copy()
+        panel.set_orientation(angle=90, flip=True)
+        aff = panel._orient_affine()
+        for layer in viewer.layers:
+            if layer.ndim == 4:
+                assert np.allclose(np.asarray(layer.affine.affine_matrix), aff), layer.name
+        assert np.array_equal(panel.session.label, before)  # nothing about the data changed
+        # drag a control point in the turned view: it moves to the pixel under the cursor
+        e = panel.editor
+        t, z = (int(v) for v in viewer.dims.current_step[:2])
+        key = (t, z, "endo")
+        p0 = e.curves[key][0].copy()
+        c = e.curves[key].mean(0)
+        target = c + 1.3 * (p0 - c)
+        img = viewer.layers["image"]
+        world = lambda p: tuple(img.data_to_world((t, z, p[1], p[0])))  # noqa: E731
+        _drive(e, viewer, _Ev(world(p0)), [(world(target), (5, 5))])
+        assert np.allclose(e.curves[key][0], target, atol=1e-6)
+        # a layer added later (the wall lines) turns too
+        panel.btn_wall.setChecked(True)
+        qtbot.waitUntil(lambda: "wall thickness" in viewer.layers, timeout=3000)
+        assert np.allclose(np.asarray(viewer.layers["wall thickness"].affine.affine_matrix), aff)
+        # ED | ES turns the same way and still saves figures; the popover controls follow
+        panel.show_compare()
+        win = panel._compare
+        qtbot.waitUntil(lambda: win.view.frames is not None and win.view.frames["angle"] == 90, timeout=2000)
+        assert win.view.frames["flip"] is True and win.view.visible_box() is not None
+        out = save_slice_figure(panel, panel.current_slice(), tmp_path / "turned.png", **win.opts())
+        assert out.stat().st_size > 10_000
+        panel.show_compare()
+        panel.show_orientation()
+        assert panel.sld_rotation.value() == 90 and panel.btn_mirror.isChecked()
+        panel.rotate_by(-90)
+        assert panel.orientation() == (0.0, True)
+        assert export_images(panel.session, tmp_path / "img")
+        # saved with the mouse, and the next mouse starts the same way
+        panel.set_orientation(angle=-45, flip=False)
+        path = panel.session.save_contours(tmp_path / "m.tracecmr.npz")
+        s2 = _phantom_session()
+        s2.load_contours(path)
+        assert s2.view_rotation == -45 and s2.view_flip is False
+        s3 = _phantom_session()
+        panel.load_session(s3)
+        assert panel.orientation() == (-45.0, False)
+    finally:
+        if panel is not None and panel.session is not None:
+            panel.set_orientation(angle=0, flip=False)  # leave the remembered default as it was
+        viewer.close()

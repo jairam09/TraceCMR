@@ -25,9 +25,19 @@ def _crop(session, z: int, t: int, half_min: int = 24):
         half = max(half_min, int(max(np.ptp(ys), np.ptp(xs)) * 0.9))
     else:
         cy, cx, half = img.shape[0] // 2, img.shape[1] // 2, min(img.shape) // 2
-    y0, y1 = max(cy - half, 0), min(cy + half, img.shape[0])
-    x0, x1 = max(cx - half, 0), min(cx + half, img.shape[1])
+    angle, flip = float(getattr(session, "view_rotation", 0.0) or 0.0), bool(getattr(session, "view_flip", False))
+    turned = bool(angle % 360) or flip
+    grow = int(np.ceil(half * 1.45)) if turned else half  # room for the corners once turned
+    y0, y1 = max(cy - grow, 0), min(cy + grow, img.shape[0])
+    x0, x1 = max(cx - grow, 0), min(cx + grow, img.shape[1])
     img, lab = img[y0:y1, x0:x1], lab[y0:y1, x0:x1]
+    if turned:  # the same turn as the viewer (orient.py), then back to the usual window around the heart
+        from .orient import orient_image
+
+        img, lab = orient_image(img, angle, flip, order=1), orient_image(lab, angle, flip, order=0)
+        my, mx = (img.shape[0] - 1) / 2, (img.shape[1] - 1) / 2
+        ya, xa = int(max(0, round(my - half))), int(max(0, round(mx - half)))
+        img, lab = img[ya:ya + 2 * half, xa:xa + 2 * half], lab[ya:ya + 2 * half, xa:xa + 2 * half]
     lo, hi = np.percentile(img, [1, 99]) if img.size else (0, 1)
     return np.clip((img - lo) / max(hi - lo, 1e-6), 0, 1), lab
 

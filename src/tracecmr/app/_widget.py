@@ -115,8 +115,9 @@ CONVENTION_TEXT = {
 }
 
 
-def _thumbnail(img2d: np.ndarray, lab2d: np.ndarray, size: int = 72) -> QPixmap:
-    """Slice thumbnail with blood pool and myocardium outlines (x right, y down)."""
+def _thumbnail(img2d: np.ndarray, lab2d: np.ndarray, size: int = 72, angle: float = 0.0,
+               flip: bool = False) -> QPixmap:
+    """Slice thumbnail with blood pool and myocardium outlines (x right, y down), turned like the view."""
     img = img2d.T.astype(np.float32)
     lab = lab2d.T
     ys, xs = np.nonzero(lab)
@@ -128,6 +129,10 @@ def _thumbnail(img2d: np.ndarray, lab2d: np.ndarray, size: int = 72) -> QPixmap:
     y0, y1 = max(cy - half, 0), min(cy + half, img.shape[0])
     x0, x1 = max(cx - half, 0), min(cx + half, img.shape[1])
     img, lab = img[y0:y1, x0:x1], lab[y0:y1, x0:x1]
+    if angle or flip:
+        from .orient import orient_image
+
+        img, lab = orient_image(img, angle, flip, order=1), orient_image(lab, angle, flip, order=0)
     lo, hi = np.percentile(img, [1, 99]) if img.size else (0, 1)
     g = np.clip((img - lo) / max(hi - lo, 1e-6), 0, 1)
     rgb = (np.dstack([g, g, g]) * 255).astype(np.uint8)
@@ -1023,6 +1028,10 @@ class TraceCMRWidget(QWidget):
         from .autosave import AutoSave
 
         self.autosave = AutoSave(self)
+        try:  # every layer added later (curves, wall lines, regions) is turned like the image
+            self.viewer.layers.events.inserted.connect(lambda e: self._orient_layer(e.value))
+        except Exception:
+            pass
         page_regions.addWidget(self.roi.box)
         for page in (page_function, page_wall, page_regions):
             page.addStretch(1)
@@ -1212,6 +1221,7 @@ class TraceCMRWidget(QWidget):
                         ("g", lambda v: self.set_smooth_image(not self.smooth_image)),
                         ("q", lambda v: self.cycle_structure()), ("k", lambda v: self._toggle_play()),
                         ("r", lambda v: self.btn_roi.toggle()),
+                        ("o", lambda v: self.show_orientation()),
                         ("Control-s", lambda v: self._save_clicked()),
                         ("Control-Shift-s", lambda v: self._save_clicked(save_as=True)),
                         ("Up", lambda v: self.step_slice(-1)), ("Down", lambda v: self.step_slice(1)),
@@ -1647,6 +1657,13 @@ class TraceCMRWidget(QWidget):
         self.editor.on_window = self.adjust_contrast
         self.editor.pan_mode = self.btn_pan.isChecked()
         self.editor.show_dots = self.btn_points.isChecked()
+        if s.view_rotation is None or s.view_flip is None:  # not chosen for this mouse: the last one used
+            st = _settings()
+            if s.view_rotation is None:
+                s.view_rotation = float(st.value("view/rotation", 0.0) or 0.0)
+            if s.view_flip is None:
+                s.view_flip = str(st.value("view/flip", False)).lower() in ("true", "1")
+        self._apply_orientation(recentre=False)
         self._rebuild_list()
         self._show_frame(s.ed_frame)
         self.viewer.reset_view()
@@ -1663,6 +1680,177 @@ class TraceCMRWidget(QWidget):
             self.lbl_order.setText(message)
         if not getattr(self, "_testing", False):
             self._preload_model()
+
+    # ---------- orientation: turn or mirror the picture (display only; see orient.py) ----------
+
+    def orientation(self) -> tuple[float, bool]:
+        s = self.session
+        if s is None:
+            return 0.0, False
+        return float(s.view_rotation or 0.0), bool(s.view_flip)
+
+    def _orient_affine(self):
+        from .orient import napari_affine
+
+        s = self.session
+        dx, dy, _ = s.spacing
+        nx, ny = s.image.shape[0], s.image.shape[1]
+        angle, flip = self.orientation()
+        return napari_affine(angle, flip, ((ny - 1) / 2 * dy, (nx - 1) / 2 * dx))
+
+    def _orient_layer(self, layer) -> None:
+        if self.session is None or getattr(layer, "ndim", 0) != 4:
+            return
+        try:
+            layer.affine = self._orient_affine()
+        except Exception:  # a layer that refuses a transform is shown unturned rather than breaking the panel
+            pass
+
+    def _to_world_yx(self, y_mm: float, x_mm: float) -> tuple[float, float]:
+        """Where an unturned (y, x) position in mm appears in the turned view."""
+        if self.session is None:
+            return y_mm, x_mm
+        w = self._orient_affine() @ np.array([0.0, 0.0, y_mm, x_mm, 1.0])
+        return float(w[2]), float(w[3])
+
+    def _apply_orientation(self, recentre: bool = True) -> None:
+        if self.session is None:
+            return
+        for layer in list(self.viewer.layers):
+            self._orient_layer(layer)
+        if recentre:
+            self._follow_heart()
+            t = getattr(self, "_thumb_timer", None)
+            if t is None:  # thumbnails catch up once the slider rests
+                t = self._thumb_timer = QTimer(self)
+                t.setSingleShot(True)
+                t.timeout.connect(self._rebuild_list_safely)
+            t.start(200)
+            c = getattr(self, "_compare", None)
+            if c is not None and c.is_open():
+                c.schedule()
+        self._sync_orientation_controls()
+
+    def _rebuild_list_safely(self) -> None:
+        try:
+            if self.session is not None:
+                self._rebuild_list()
+        except RuntimeError:  # the window closed before the timer fired
+            pass
+
+    def _follow_heart(self) -> None:
+        """Keep the heart in the middle of the view (same zoom) while the picture turns."""
+        s = self.session
+        lab = s.label[:, :, :, s.ed_frame]
+        xs, ys, _ = np.nonzero(lab)
+        dx, dy, _ = s.spacing
+        if len(xs):
+            y_mm, x_mm = float(ys.mean() * dy), float(xs.mean() * dx)
+        else:
+            y_mm, x_mm = (s.image.shape[1] - 1) / 2 * dy, (s.image.shape[0] - 1) / 2 * dx
+        cam = self._camera
+        centre = list(cam.center)
+        centre[-2], centre[-1] = self._to_world_yx(y_mm, x_mm)
+        cam.center = tuple(centre)
+
+    def set_orientation(self, angle: float | None = None, flip: bool | None = None) -> None:
+        """Turn (degrees, clockwise) and/or mirror the picture. Remembered for this mouse (saved with its
+        contours) and as the starting orientation for the next mouse opened."""
+        from .orient import normalise
+
+        s = self.session
+        if s is None:
+            return
+        if angle is not None:
+            s.view_rotation = normalise(round(float(angle), 1))
+        if flip is not None:
+            s.view_flip = bool(flip)
+        st = _settings()
+        st.setValue("view/rotation", float(s.view_rotation or 0.0))
+        st.setValue("view/flip", bool(s.view_flip))
+        self._apply_orientation()
+
+    def rotate_by(self, degrees: float) -> None:
+        a, _ = self.orientation()
+        self.set_orientation(angle=a + degrees)
+
+    def _sync_orientation_controls(self) -> None:
+        sld = getattr(self, "sld_rotation", None)
+        if sld is None:
+            return
+        a, f = self.orientation()
+        sld.blockSignals(True)
+        sld.setValue(int(round(a)))
+        sld.blockSignals(False)
+        self.lbl_rotation.setText(f"{a:+.0f}°" if a else "0°")
+        self.btn_mirror.blockSignals(True)
+        self.btn_mirror.setChecked(f)
+        self.btn_mirror.blockSignals(False)
+
+    def _build_orientation_popup(self) -> None:
+        """Rotate and mirror: a floating card like Brightness and contrast."""
+        from qtpy.QtWidgets import QSlider
+
+        from .hints import set_hint
+        from .popover import Popover
+
+        pop = Popover(self.viewer.window._qt_window if self._has_window() else self, "Rotate and mirror")
+        self.orientation_popup = pop
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.sld_rotation = QSlider(Qt.Orientation.Horizontal)
+        self.sld_rotation.setRange(-180, 180)
+        self.sld_rotation.setMinimumWidth(220)
+        self.sld_rotation.setPageStep(15)
+        self.sld_rotation.valueChanged.connect(lambda v: self.set_orientation(angle=v))
+        self.lbl_rotation = QLabel("0°")
+        self.lbl_rotation.setObjectName("value")
+        self.lbl_rotation.setFixedWidth(40)
+        self.lbl_rotation.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(QLabel("Rotate"))
+        row.addWidget(self.sld_rotation)
+        row.addWidget(self.lbl_rotation)
+        pop.body.addLayout(row)
+        btns = QHBoxLayout()
+        b_left, b_right = QPushButton("↺ 90°"), QPushButton("↻ 90°")
+        self.btn_mirror = QPushButton("Mirror")
+        self.btn_mirror.setCheckable(True)
+        b_reset = QPushButton("Reset")
+        set_hint(b_left, "Rotate left", "Turn the picture 90° anticlockwise.")
+        set_hint(b_right, "Rotate right", "Turn the picture 90° clockwise.")
+        set_hint(self.btn_mirror, "Mirror", "Flip the picture left to right.")
+        set_hint(b_reset, "Reset", "Back to the scanner's orientation.")
+        b_left.clicked.connect(lambda: self.rotate_by(-90))
+        b_right.clicked.connect(lambda: self.rotate_by(90))
+        self.btn_mirror.toggled.connect(lambda on: self.set_orientation(flip=on))
+        b_reset.clicked.connect(lambda: self.set_orientation(angle=0.0, flip=False))
+        for b in (b_left, b_right, self.btn_mirror, b_reset):
+            btns.addWidget(b)
+        btns.addStretch(1)
+        pop.body.addLayout(btns)
+        note = QLabel("Only the picture turns: contours and results are unchanged.\nSaved with this mouse; "
+                      "the next mouse starts the same way.")
+        note.setObjectName("note")
+        pop.body.addWidget(note)
+        self._sync_orientation_controls()
+
+    def show_orientation(self) -> None:
+        if self.session is None:
+            return
+        if getattr(self, "orientation_popup", None) is None:
+            self._build_orientation_popup()
+        pop = self.orientation_popup
+        anchor = None
+        try:
+            anchor = self.viewer.window._qt_viewer.canvas.native
+        except Exception:
+            pass
+        self._sync_orientation_controls()
+        if anchor is not None:
+            pop.show_near(anchor)
+        else:
+            pop.show()
+        pop.raise_()
 
     @property
     def _camera(self):
@@ -1705,7 +1893,8 @@ class TraceCMRWidget(QWidget):
             self.viewer.dims.current_step = tuple(step)
         cam = self._camera
         centre = list(cam.center)
-        centre[-2], centre[-1] = float(ys.mean() * dy), float(xs.mean() * dx)
+        wy, wx = self._to_world_yx(float(ys.mean() * dy), float(xs.mean() * dx))
+        centre[-2], centre[-1] = wy, wx
         cam.center = tuple(centre)
         span = max(np.ptp(ys) * dy, np.ptp(xs) * dx, 1.0)
         full = max(lab.shape[0] * dx, lab.shape[1] * dy)
@@ -1878,6 +2067,8 @@ class TraceCMRWidget(QWidget):
             tooltip="On: smooth (bicubic), like Segment. Off: the scanner's real pixels.")
         view.add("Brightness and contrast…", self.btn_contrast.click, icon="mdi6.brightness-6",
                  tooltip="Or hold Ctrl and drag the image")
+        view.add("Rotate or mirror…", self.show_orientation, keys="O", icon="mdi6.rotate-right",
+                 tooltip="Turn the picture to the orientation you're used to. Contours and results don't change.")
         view.addSeparator()
         view.add("Zoom in", self.btn_zoom_in.click, keys="+", icon="mdi6.magnify-plus-outline")
         view.add("Zoom out", self.btn_zoom_out.click, keys="−", icon="mdi6.magnify-minus-outline")
@@ -2065,7 +2256,7 @@ class TraceCMRWidget(QWidget):
                      lambda: [self.btn_smooth, self.btn_refine, self.btn_points, self.btn_brush, self.btn_undo,
                               self.btn_redo, self.btn_clear]),
             TourStep("Look closely",
-                     "Pan, center on the heart, and View: hide contours, smooth image, contrast, zoom.", lambda: [self.btn_pan, self.btn_zoom_fit, self.btn_view]),
+                     "Pan, center on the heart, and View: hide contours, smooth image, contrast, rotate, zoom.", lambda: [self.btn_pan, self.btn_zoom_fit, self.btn_view]),
             TourStep("Measure",
                      "Wall shows thickness on the slice. ROI measures a region's area and signal and compares "
                      "regions (CNR), e.g. scar vs remote muscle on LGE.", lambda: [self.btn_wall, self.btn_roi]),
@@ -2338,7 +2529,8 @@ class TraceCMRWidget(QWidget):
         for z in s.order:
             t = s.t_for(z, "ED")
             item = QTreeWidgetItem(["", "", "", ""])
-            item.setIcon(0, QIcon(_thumbnail(s.image[:, :, z, t], s.label[:, :, z, t])))
+            item.setIcon(0, QIcon(_thumbnail(s.image[:, :, z, t], s.label[:, :, z, t], angle=s.view_rotation or 0.0,
+                                             flip=bool(s.view_flip))))
             item.setData(0, Qt.ItemDataRole.UserRole, z)
             item.setFlags((item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsDragEnabled)
                           & ~Qt.ItemFlag.ItemIsDropEnabled)
