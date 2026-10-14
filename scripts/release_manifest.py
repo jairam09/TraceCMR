@@ -90,6 +90,11 @@ def main() -> int:
     if meta["version"] != version:
         print(f"wheel is {meta['version']} but the tag is {a.tag}", file=sys.stderr)
         return 1
+    with zipfile.ZipFile(a.wheel) as z:
+        init = z.read("tracecmr/__init__.py").decode("utf-8")
+    if f'__version__ = "{version}"' not in init:
+        print(f"tracecmr/__init__.py in the wheel doesn't say {version}", file=sys.stderr)
+        return 1
     notes = changelog_notes(a.changelog, version)
     if not notes:
         print(f"CHANGELOG.md has no '## {version}' section with bullets", file=sys.stderr)

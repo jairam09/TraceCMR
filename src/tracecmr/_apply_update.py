@@ -205,7 +205,7 @@ def main(argfile: str) -> int:
             raise RuntimeError(f"pip install failed ({rc}): {out.strip()[-300:]}")
         ok, found = check_import(python, A["check"])
         log(f"check: ok={ok} {found}")
-        if not ok or A["expect"] not in found.split():
+        if not ok or found.split()[1:3] != [A["expect"], A["expect"]]:  # "VERSION <imported> <metadata>"
             raise RuntimeError(f"the new version didn't start: {found[-300:]}")
         result.update(ok=True, message=f"Updated to TraceCMR {A['expect']}.", notes=A.get("notes", []))
         return 0

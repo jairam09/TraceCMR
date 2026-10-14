@@ -250,11 +250,14 @@ class UpdateController:
                      f"Fetch origin, then Pull).", res.notes, first=("OK", card.hide))
         elif why or kind == "readonly" or not self.app_mode:
             reason = ("It adds new components, so it comes as a new installer." if why else
-                      "This copy can't update itself, so use the new installer." if kind == "readonly" else
+                      "This copy can't update itself, so it comes as a new installer." if kind == "readonly" else
                       "Get it from the download page.")
+            how = ("" if not self.app_mode else
+                   " Uninstall this version first (Windows: Settings → Apps; Mac: move the TraceCMR folder in your "
+                   "home folder and the TraceCMR app to the Trash), then run it. Your results and settings are kept.")
             print(f"update {res.version} needs the installer: {why or kind}", flush=True)
             card.set("installer", f"TraceCMR {res.version} is available",
-                     f"You have {cur}. {reason} Your results and settings are kept.", res.notes,
+                     f"You have {cur}. {reason}{how}", res.notes,
                      first=("Download", lambda: self._open(res.installer_url or res.page)),
                      second=("Later", card.hide))
         else:

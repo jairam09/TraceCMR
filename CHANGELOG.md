@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Updates: the helper only counts an update as installed when both the code and the package information report the new version (a wheel where they disagree is rolled back). The release workflow refuses such a wheel too.
+- When a release needs the full installer, the update card says to uninstall the current version first: the installers don't install over an existing copy (checked on Windows and Mac). Results and settings are kept.
+
 ## [0.3.4] - 2026-10-14
 
 - Updates install themselves: when a new version is out, TraceCMR offers it at start (or Help → Check for updates), downloads it in seconds and installs it on restart. If anything goes wrong it goes back to the previous version by itself. No new installer needed.

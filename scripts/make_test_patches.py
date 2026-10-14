@@ -35,9 +35,12 @@ def rewrite(base: Path, out_dir: Path, version: str, broken: bool) -> Path:
             data = z.read(n)
             new = new_info + n[len(old_info):] if n.startswith(old_info + "/") else n
             if new == f"{new_info}/METADATA":
-                data = re.sub(rb"(?m)^Version: .*$", f"Version: {version}".encode(), data, count=1)
+                data = re.sub(rb"(?m)^Version: [^\r\n]*", f"Version: {version}".encode(), data, count=1)
             elif new == f"{dist}/__init__.py":
-                data = re.sub(rb'(?m)^__version__ = ".*"$', f'__version__ = "{version}"'.encode(), data, count=1)
+                data, count = re.subn(rb'(?m)^__version__ = "[^"]*"', f'__version__ = "{version}"'.encode(), data,
+                                      count=1)
+                if count != 1:
+                    raise SystemExit(f"no __version__ line in {new}")
             elif new == f"{dist}/app/__init__.py" and broken:
                 data += b'\nraise ImportError("test patch: deliberately broken")\n'
             files[new] = data

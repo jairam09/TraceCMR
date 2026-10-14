@@ -170,7 +170,8 @@ def _run_helper(tmp_path, monkeypatch, check_ok: bool):
         calls.append(1)
         v = (site / "tracecmr" / "__init__.py").read_text()
         good = v == "v1" or check_ok
-        return good, f"VERSION {'2.0' if v == 'v2' else '1.0'}" if good else "ImportError: broken"
+        ver = "2.0" if v == "v2" else "1.0"
+        return good, f"VERSION {ver} {ver}" if good else "ImportError: broken"
 
     monkeypatch.setattr(h, "check_import", fake_check)
     rc = h.main(str(_args(tmp_path, site, done.pid)))
@@ -192,6 +193,20 @@ def test_helper_puts_the_old_version_back(tmp_path, monkeypatch):
     assert not (site / "tracecmr" / "new_only.py").exists()
     assert [d.name for d in site.glob("*.dist-info")] == ["tracecmr-1.0.dist-info"]
     assert "still 1.0" in res["message"]
+
+
+def test_helper_refuses_a_version_mismatch(tmp_path, monkeypatch):
+    """The code says one version and the metadata another (a bad wheel): roll back, don't call it updated."""
+    h = _helper()
+    site = tmp_path / "site"
+    _fake_install(site, "1.0", {"tracecmr/__init__.py": "v1"})
+    monkeypatch.setattr(h, "pip_install", lambda python, wheel: (0, "ok"))
+    monkeypatch.setattr(h, "check_import", lambda python, code: (True, "VERSION 1.0 2.0"))
+    done = subprocess.Popen([sys.executable, "-c", "pass"])
+    done.wait()
+    assert h.main(str(_args(tmp_path, site, done.pid))) == 1
+    res = json.loads((tmp_path / "u" / "last.json").read_text())
+    assert not res["ok"] and res["rolled_back"]
 
 
 def test_helper_waits_for_the_app():

@@ -37,8 +37,10 @@ app log).
 
 A patch only changes TraceCMR. If a release needs another package or a newer one (its `requires` in
 `latest.json` aren't met by the installed copy), or a newer Python, the card offers **Download** for the new
-installer instead. Installing over the old copy keeps results and settings, which live outside the install
-folder.
+installer instead. The installers don't install over an existing copy (checked on both systems), so the old
+copy is removed first: on Windows, Settings → Apps → TraceCMR → Uninstall; on a Mac, move the TraceCMR folder in
+the home folder and TraceCMR in the home folder's Applications to the Trash. Results and settings live outside
+the install folder and are kept.
 
 Source installs (`git clone`, `pip install -e`) never patch themselves: Help → Check for updates says to
 `git pull` instead, and the check at start is off for them.
