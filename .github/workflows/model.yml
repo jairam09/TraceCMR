@@ -41,7 +41,7 @@ jobs:
           curl -sSfL -o ucl/unet3plus.py $raw/unet3plus.py
           curl -sSfL -o ucl/LICENSE $raw/LICENSE
           curl -sSfL -o ucl/ModelWeights/SEG459.h5 $lfs/ModelWeights/SEG459.h5
-          for m in Mouse1 Mouse40 Mouse118; do curl -sSfL -o mice/$m.h5 $lfs/Data/$m.h5; done
+          for m in Mouse1 Mouse40 Mouse118; do curl -sSfL -o mice/$m.h5 $raw/Data/$m.h5; done  # the data are plain git files, the weights LFS
           ls -la ucl ucl/ModelWeights mice
       - name: Convert and check
         run: python scripts/convert_ucl_onnx.py ucl out mice/Mouse1.h5 mice/Mouse40.h5 mice/Mouse118.h5
