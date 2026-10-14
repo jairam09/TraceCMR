@@ -2291,3 +2291,31 @@ def test_settings_and_help_offer_updates(qtbot):
         assert panel.chk_updates.text() == "Check for updates when TraceCMR starts"
     finally:
         viewer.close()
+
+
+def test_paravision_study_opens_as_one_stack(tmp_path):
+    """Open scan on a Bruker ParaVision study folder: the short-axis scans (one per slice) open as one stack,
+    the long-axis and localizer scans are listed; picking one scan's folder opens its study; picking a folder of
+    studies lists them as mice."""
+    from test_bruker import ORIENT, write_scan
+
+    study = tmp_path / "mri" / "20260730_Mouse_1_44"
+    normal = np.array(ORIENT[6:])
+    for k, number in enumerate([10, 8, 9]):
+        write_scan(study, number, f"SAX_S-{k}.0", np.full((16, 16, 1, 6), 100 * (k + 1)), slope=1.0,
+                   positions=[list(np.array([7.4, 15.4, 9.9]) - k * normal)])
+    write_scan(study, 16, "LAX_S0.0 4chamber", np.ones((16, 16, 1, 6), int), orient=[1, 0, 0, 0, 1, 0, 0, 0, 1])
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel._testing = True
+        panel.open_path(study / "9")  # one scan's folder: the whole study opens
+        s = panel.session
+        assert s.image.shape == (16, 16, 3, 6) and s.separate_slices
+        assert [float(s.image[0, 0, z, 0]) for z in range(3)] == [300.0, 200.0, 100.0]  # by position
+        assert any(x.kind == "Long axis" for x in panel.study)
+        panel.open_study(tmp_path / "mri")  # a folder of studies
+        assert panel.series_panel.mice.count() == 1
+        assert "ParaVision scan sessions" in panel.series_panel.lbl.text()
+    finally:
+        viewer.close()

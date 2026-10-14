@@ -20,12 +20,13 @@ Open-source analysis for **mouse cardiac MRI**: LV volumes and function, regiona
 | EDV, ESV, stroke volume, EF, LV mass, with QC flags | Working (v0.1) |
 | Detect base vs apex, reorder slices, assign basal/mid/apical levels | Working (v0.1.1) |
 | Regional end-diastolic wall thickness and systolic thickening, bullseye plots | Working (v0.2, radial-ray method) |
-| Read cine series from DICOM (classic and enhanced multi-frame) | Working (v0.2, tested on synthetic data) |
+| Read cine series from DICOM (classic and enhanced multi-frame, incl. Bruker's export) | Working (checked on a real Bruker export, v0.3.5) |
 | Desktop app (napari): cine playback, ED/ES marking, slice order and per-phase slice choice, drag-point contour editing, compute | Working (prototype) |
 | Automatic contouring with published models (UCL, Calico), review flags, ED/ES from the volume curve | Working (prototype; models installed separately, see docs/models.md) |
 | Track the same mouse across scans (per-segment change maps) | Planned |
 | LGE scar size, % of myocardium, transmurality (n-SD and FWHM) | Planned (v0.3) |
-| Bruker ParaVision and Segment (.mat) input | Planned |
+| Bruker ParaVision study folders read directly (2dseq + visu_pars), no export needed | Working (checked on a real study, v0.3.5) |
+| Segment (.mat) input | Planned |
 
 ## Download the app
 

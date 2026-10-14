@@ -471,7 +471,8 @@ class SeriesPanel(QWidget):
                 self.owner.lbl_data_dir.setText(d)
 
     def fill_mice(self, root=None) -> None:
-        """List the mice in the data folder: each sub-folder (a mouse's DICOM series) and each .h5 file."""
+        """List the mice in the data folder: each sub-folder (a ParaVision study or a mouse's DICOM series) and each
+        .h5 file."""
         root = root or _settings().value("folders/data")
         self.mice.clear()
         if not root or not Path(root).is_dir():
@@ -680,7 +681,7 @@ class TraceCMRWidget(QWidget):
             return b
 
         self.btn_dcm = tool("Open scan", "mdi6.folder-open-outline",
-                            "Open one mouse's folder (all its slice series).")
+                            "Open one mouse's scan folder: a Bruker ParaVision study, or a folder of DICOM files.")
         self.btn_ucl = tool("UCL file", "mdi6.file-plus-outline", "Add UCL .h5 files.")
         self.btn_save = tool("Save", "mdi6.content-save-outline",
                              "Save this mouse's contours and choices (Ctrl+S). They reload when you reopen it.")
@@ -1323,7 +1324,8 @@ class TraceCMRWidget(QWidget):
         self.open_series(first)
 
     def _open_dicom(self):
-        folder = QFileDialog.getExistingDirectory(self, "Choose one mouse's folder (all its slice series)")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose one mouse's scan folder (a ParaVision study folder, or a folder of DICOM files)")
         if folder:
             self.open_path(folder)
 
@@ -1612,7 +1614,7 @@ class TraceCMRWidget(QWidget):
             self.viewer.dims.current_step = tuple(step)
 
     def open_path(self, path) -> None:
-        """Open one mouse from the data folder: a folder of DICOM series, or a UCL .h5 file. The previous
+        """Open one mouse from the data folder: a ParaVision study, a folder of DICOM series, or a UCL .h5 file. The previous
         mouse is saved first and the series list starts fresh."""
         path = Path(path)
         st = _settings()
@@ -2185,7 +2187,8 @@ class TraceCMRWidget(QWidget):
 
         install()
         for btn, title, body, keys in (
-            (self.btn_dcm, "Open scan", "Open one mouse's folder. Arrow: add UCL .h5 files.", None),
+            (self.btn_dcm, "Open scan", "Open one mouse's scan folder: a Bruker ParaVision study or DICOM files. "
+                                        "Arrow: add UCL .h5 files.", None),
             (self.btn_save, "Save", "Save contours and choices; they reload with the mouse. Arrow: Save as, Export.", ["Ctrl", "S"]),
             (self.btn_auto, "Auto LV", "Contour the LV on every slice at this frame (about 1 s).", None),
             (self.btn_endo, "Endocardium", "Edit the inner LV contour (red).", ["Q"]),

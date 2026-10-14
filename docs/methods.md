@@ -64,7 +64,15 @@ Every choice that changes a result is written down here, with the reason. Papers
 - Pixel spacing from PixelSpacing (row spacing -> y, column spacing -> x); slice spacing = median distance between slice positions, so gaps are included.
 - Refuses incomplete grids (missing frames, mixed orientations or matrix sizes) instead of guessing.
 - Bug caught by tests during development: a trigger time of 0 ms was treated as missing, which scrambled time order. Fixed with an explicit missing-value check.
-- Tested only on synthetic series so far; needs one real Bruker DICOM export to confirm.
+- Bruker's DICOM export writes one enhanced file per scan with orientation, position, pixel spacing and the rescale in the shared functional groups (only the cardiac timing is per frame); these are read, and single-slice files with the same geometry are stacked by position.
+- Checked on a real facility study (Bruker, IntraGate FLASH cine, 8 short-axis scans of one slice each, 128x128 at 0.2 mm, 16 frames): the DICOM export and the raw ParaVision files give identical images, slice order and timing.
+
+## Bruker ParaVision input (`bruker.py`)
+
+- Reads a study folder directly: each numbered scan's `pdata/1/2dseq` with `visu_pars` (size, extent, frame groups, orientation, position, per-frame slope/offset, word type, byte order, cardiac frame times). No DICOM export needed.
+- Frame layout from `VisuFGOrderDesc` (first group fastest): cardiac movie (`FG_CARDIAC_MOVIE`, or `FG_MOVIE`/`FG_CYCLE` in older versions) and slice (`FG_SLICE`) groups; other groups (e.g. echoes) use their first element and the scan says so.
+- Slice order always from positions along the slice normal, never from scan names or numbers (in the real study checked, a hand-typed scan name gave the wrong slice position).
+- Short-axis scans of one slice each with equal geometry are stacked into one short-axis cine automatically, as for DICOM.
 
 ## Snap to edge (`refine.py`, app button)
 

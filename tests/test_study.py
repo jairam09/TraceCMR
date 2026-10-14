@@ -75,3 +75,58 @@ def test_any_slice_count_repeats_and_uneven_frames(tmp_path):
     assert sess.image.shape[2:] == (6, 5) and sess.separate_slices
     assert [int(sess.image[5, 5, z, 0]) for z in range(6)] == [0, 100, 200, 300, 400, 500]
     assert "frames 5–6" in sess.subject_id
+
+
+def _write_bruker_enhanced(folder, desc, number, z, n_times=6, slope=2.0, orient=ORIENT):
+    """Like ParaVision's DICOM export: one enhanced file per short-axis slice, orientation, position, pixel
+    spacing and rescale in the shared functional groups, only the cardiac timing per frame."""
+    from pydicom.dataset import Dataset
+    from pydicom.sequence import Sequence
+
+    from test_dicom import _base
+
+    folder.mkdir(parents=True, exist_ok=True)
+    ds = _base(sop_class="1.2.840.10008.5.1.4.1.1.4.1")
+    ds.SeriesInstanceUID = generate_uid()
+    ds.SeriesDescription = desc
+    ds.SeriesNumber = number
+    shared = Dataset()
+    pm = Dataset(); pm.PixelSpacing = [0.2, 0.2]
+    po = Dataset(); po.ImageOrientationPatient = orient
+    pp = Dataset(); pp.ImagePositionPatient = [0.0, 0.0, float(z)]
+    pv = Dataset(); pv.RescaleSlope = slope; pv.RescaleIntercept = 0; pv.RescaleType = "US"
+    shared.PixelMeasuresSequence = Sequence([pm])
+    shared.PlaneOrientationSequence = Sequence([po])
+    shared.PlanePositionSequence = Sequence([pp])
+    shared.PixelValueTransformationSequence = Sequence([pv])
+    ds.SharedFunctionalGroupsSequence = Sequence([shared])
+    items = []
+    for t in range(n_times):
+        it = Dataset()
+        cs = Dataset(); cs.NominalCardiacTriggerDelayTime = 8.0 * t
+        it.CardiacSynchronizationSequence = Sequence([cs])
+        items.append(it)
+    ds.PerFrameFunctionalGroupsSequence = Sequence(items)
+    ds.NumberOfFrames = n_times
+    ds.PixelData = np.stack([_pixels(z, t) for t in range(n_times)]).tobytes()
+    ds.save_as(folder / f"E{number}_P1_EnIm1.dcm", enforce_file_format=True)
+
+
+def test_bruker_dicom_export_one_enhanced_file_per_slice_stacks(tmp_path):
+    from tracecmr.app.study import auto_stacks
+
+    # scan numbers and hand-typed labels disagree with the geometry; slices must follow the positions
+    for k, (number, z) in enumerate([(8, 2), (9, 0), (10, 1)]):
+        _write_bruker_enhanced(tmp_path / f"{number}", f"SAX_S-{k}.0 GAD", number, z)
+    _write_bruker_enhanced(tmp_path / "16", "LAX_S0.0 4chamber", 16, 0, orient=[1, 0, 0, 0, 0, 1])
+    series = scan_dicom_folder(tmp_path)
+    sax = [s for s in series if s.kind == "Short axis"]
+    assert len(sax) == 3 and all(s.n_slices == 1 and s.n_frames == 6 and s.geometry for s in sax)
+    stacks = auto_stacks(series)
+    assert len(stacks) == 1 and stacks[0].n_slices == 3
+    sess = stacks[0].load()
+    assert sess.image.shape[2:] == (3, 6)
+    # rescale applied (slope 2) and slices sorted by position: value = 2 * (100 * z + t)
+    assert [float(sess.image[5, 5, z, 1]) for z in range(3)] == [2.0, 202.0, 402.0]
+    assert sess.frame_times_ms == [0, 8, 16, 24, 32, 40]
+    assert sess.spacing[0] == sess.spacing[1] == 0.2

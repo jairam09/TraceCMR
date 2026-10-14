@@ -2,6 +2,8 @@
 
 ## [0.3.5] - 2026-10-14
 
+- Opens Bruker scans straight from the scanner: Open scan → pick the ParaVision study folder (the one with numbered scan folders). The short-axis scans become one stack in the right slice order, from their positions. Long-axis and planning scans are listed too. No DICOM export needed.
+- Bruker's DICOM export also opens properly now: one file per short-axis slice is stacked automatically, with Bruker's intensity scaling applied.
 - Updates double-check that the new version installed completely before calling it done; otherwise they put the previous version back.
 - If a future version needs the full installer, TraceCMR now says to uninstall the current version first (the installers don't install over an existing copy). Results and settings are kept.
 

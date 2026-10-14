@@ -90,3 +90,10 @@ One entry per work session: date, what you tried, what happened, what you decide
 - Started the project. Repo scaffold created: NIfTI loader with label remapping (ACDC supported), sanity checks, synthetic ring phantom, overlay figures, 14 tests passing.
 - Phantom check: blood pool 126.4 µL by voxel counting vs 125.7 µL exact (0.6% pixelation error at 0.1 mm pixels).
 - Next: install on laptop (SETUP.md), push to GitHub, email UCL authors about the mouse dataset, register for ACDC and run `check_dataset.py` on a few subjects.
+
+## 2026-10-14 (first real Bruker study)
+
+- Facility test scan (Bruker, ParaVision 360, IntraGate FLASH bright-blood cine): 8 short-axis scans of one slice each (128x128, 0.2 mm, 1 mm slices, 16 frames, 8 ms apart), plus 4-chamber and 2-chamber cines and planning scans. Both the raw study folder (2dseq + visu_pars) and its DICOM export now open as one 8-slice stack; the two give identical images (max difference 0), slice order and timing.
+- The old DICOM path would not have stacked it: Bruker's enhanced export keeps orientation and position in the shared functional groups (read only per frame before) and the rescale in PixelValueTransformationSequence (ignored before).
+- A hand-typed scan name gave the wrong slice position (named S-4.5, actually at -7.0 mm). Slice order comes from geometry only.
+- Auto LV (UCL model) on this scan: finds the LV on 7 of 8 slices in most frames, but is not stable. Rotating or mirroring the input (which should not change anything) moves EDV between about 150 and 190 uL and EF between 30% and 69%. Not trustworthy on this data as it is: present Auto LV as a starting point to correct, and test on outside data before claiming accuracy. Options: average the model over rotations and flips (test-time augmentation) for stability; fine-tune on contoured facility scans once there are some.
