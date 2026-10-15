@@ -541,6 +541,34 @@ def test_slice_list_keeps_room_on_a_short_screen():
         viewer.close()
 
 
+def test_open_scan_starts_in_the_last_folder(qtbot, monkeypatch, tmp_path):
+    """Open scan's folder picker opens where the last scan came from (its parent folder), not in Documents."""
+    from tracecmr.app import _widget as W
+
+    store = {}
+    monkeypatch.setattr(W, "_settings", lambda: type("S", (), {"value": lambda self, k, d=None: store.get(k, d),
+                                                                 "setValue": lambda self, k, v: store.update({k: v})})())
+    scans = tmp_path / "mri"
+    (scans / "study_44").mkdir(parents=True)
+    starts, opened = [], []
+
+    def pick(parent, caption, start=""):
+        starts.append(start)
+        return str(scans / "study_44")
+
+    monkeypatch.setattr(W.QFileDialog, "getExistingDirectory", staticmethod(pick))
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        monkeypatch.setattr(panel, "open_path", opened.append)
+        panel._open_dicom()
+        panel._open_dicom()
+        assert starts[0] == str(W.Path.home()) and starts[1] == str(scans)
+        assert opened == [str(scans / "study_44")] * 2
+    finally:
+        viewer.close()
+
+
 def test_contour_focus_and_per_slice_results():
     ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)

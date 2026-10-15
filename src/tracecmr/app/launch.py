@@ -53,6 +53,29 @@ def main(argv: list[str] | None = None) -> None:
     _windowless_output()
     argv = sys.argv[1:] if argv is None else argv
     create_app()  # fast: the splash appears before napari's slow import
+    from . import single
+
+    if single.hand_over(argv):  # already open: that window comes forward (and opens the scan); this one quits
+        os._exit(0)
+    held: dict = {}
+
+    def bring_forward() -> None:
+        viewer_ = held.get("viewer")
+        if viewer_ is None:
+            return
+        win = viewer_.window._qt_window
+        if win.isMinimized():
+            win.showNormal()
+        win.raise_()
+        win.activateWindow()
+
+    def open_from_launch(path: str) -> None:
+        if "panel" in held:
+            held["panel"].open_path(path)
+        else:  # asked during the splash: open it once the window is up
+            held["pending"] = path
+
+    listener = single.Listener(bring_forward, open_from_launch)  # noqa: F841 (kept alive for the whole run)
     splash = Splash()
     with splash.track_imports(0.04, 0.82):  # the line glides as the program's parts load
         import napari
@@ -75,7 +98,10 @@ def main(argv: list[str] | None = None) -> None:
     if argv:
         p = Path(argv[0])
         panel.load_session(Session.from_dicom(p) if p.is_dir() else Session.from_ucl(p))
+    held.update(viewer=viewer, panel=panel)
     reveal(viewer, splash)
+    if "pending" in held:
+        panel.open_path(held.pop("pending"))
     animate_logo(viewer)
     from qtpy.QtCore import QTimer
 

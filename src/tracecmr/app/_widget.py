@@ -1361,9 +1361,20 @@ class TraceCMRWidget(QWidget):
 
     # ---------- opening ----------
 
+    @staticmethod
+    def _start_folder(key: str) -> str:
+        """Where a file dialog opens: the folder used last time for this, else the data folder, else home."""
+        st = _settings()
+        for d in (st.value(key, ""), st.value("folders/data", "")):
+            if d and Path(str(d)).is_dir():
+                return str(d)
+        return str(Path.home())
+
     def _open_ucl(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Open UCL mouse file(s)", "", "UCL HDF5 (*.h5)")
+        paths, _ = QFileDialog.getOpenFileNames(self, "Open UCL mouse file(s)", self._start_folder("folders/last_ucl"),
+                                                "UCL HDF5 (*.h5)")
         if paths:
+            _settings().setValue("folders/last_ucl", str(Path(paths[0]).parent))
             self.add_ucl(paths, raw=self.chk_raw.isChecked())
 
     def add_ucl(self, paths, raw: bool = False) -> None:
@@ -1375,8 +1386,11 @@ class TraceCMRWidget(QWidget):
 
     def _open_dicom(self):
         folder = QFileDialog.getExistingDirectory(
-            self, "Choose one mouse's scan folder (a ParaVision study folder, or a folder of DICOM files)")
+            self, "Choose one mouse's scan folder (a ParaVision study folder, or a folder of DICOM files)",
+            self._start_folder("folders/last_scan"))
         if folder:
+            # next time, open in the folder that holds it, so the mouse's neighbours are one click away
+            _settings().setValue("folders/last_scan", str(Path(folder).parent))
             self.open_path(folder)
 
     def open_study(self, folder) -> None:
