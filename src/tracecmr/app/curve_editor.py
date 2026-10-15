@@ -39,6 +39,16 @@ LINE_WIDTH = 0.6  # contour line width (pixels of the image)
 Key = tuple[int, int, str]  # (frame, slice, "endo"/"epi"/"rv")
 
 
+def light_refresh(layer) -> None:
+    """Redraw a layer whose data changed in place, skipping what a moving dot doesn't change: its thumbnail in
+    napari's layer list (hidden while editing curves, and the costliest part), its extent and its highlight.
+    Older napari without these options gets a plain refresh."""
+    try:
+        layer.refresh(thumbnail=False, extent=False, highlight=False)
+    except TypeError:
+        layer.refresh()
+
+
 def curves_from_labels(label4d: np.ndarray, frames: list[int], n_points: int = START_POINTS) -> dict[Key, np.ndarray]:
     """Control points for every contoured slice of the given frames. label4d is (x, y, slice, time)."""
     out: dict[Key, np.ndarray] = {}
@@ -374,9 +384,9 @@ class CurveEditor:
         try:
             x, y = self.curves[key][i]
             self.points.data[rows[i], 2:] = (y, x)
-            self.points.refresh()
+            light_refresh(self.points)
             self.shapes._data_view.edit(idx, self._outline(key))
-            self.shapes.refresh()
+            light_refresh(self.shapes)
         except Exception:  # napari internals changed: fall back to the full redraw
             self._refresh_layers()
         finally:
@@ -828,8 +838,9 @@ class CurveEditor:
         self.set_active(on)
 
     def apply_to(self, label4d: np.ndarray) -> np.ndarray:
-        """Write edited slices back into a (x, y, slice, time) label array; returns a new array."""
-        out = label4d.copy()
+        """Write edited slices back into a (x, y, slice, time) label array; returns a new array (with the same
+        memory layout as label4d: often a transposed view of the napari layer, which order="C" would reshuffle)."""
+        out = label4d.copy(order="K")
         slices = {(t, z) for t, z, _ in self.edited}
         for t, z in slices:
             out[:, :, z, t] = labels_from_curves(self.curves.get((t, z, "endo")), self.curves.get((t, z, "epi")),

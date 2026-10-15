@@ -76,13 +76,27 @@ def wall_problems(label2d: np.ndarray, spacing_xy) -> list[str]:
     return out
 
 
+def _slice_checks(sl: np.ndarray, image2d: np.ndarray, sp) -> list[str]:
+    """Checks 2 and 3 (wall) on one slice: the slow part, about 10 ms a slice."""
+    out = []
+    d = image_disagreement(sl, image2d, sp)
+    if d >= IMAGE_FRAC:
+        out.append(f"outline off the blood edge by {d:.0%}")
+    return out + wall_problems(sl, sp)
+
+
 def check_slices(label4d: np.ndarray, image4d: np.ndarray, spacing, pairs: dict[str, list[tuple[int, int]]],
-                 order: list[int], unsure: dict[tuple[int, int], float] | None = None) -> dict[tuple[int, int], list[str]]:
+                 order: list[int], unsure: dict[tuple[int, int], float] | None = None,
+                 only: set[tuple[int, int]] | None = None, cache: dict | None = None) -> dict[tuple[int, int], list[str]]:
     """{(frame, slice): [reasons]} for the ED and ES slices that need a second look.
 
     pairs: {"ED": [(frame, slice), ...], "ES": [...]} the contoured slices of each phase; order: slices base to
     apex (for neighbours); unsure: model unsure scores from the last Auto LV (slices edited since are left out).
+    only: run the per-slice image and wall checks just on these (frame, slice) (the others still count as
+    neighbours); cache: a dict kept between calls on the same scan, so slices that haven't changed are not
+    checked again (after an edit, only the edited slice is).
     """
+    import hashlib
     sp = tuple(spacing[:2])
     out: dict[tuple[int, int], list[str]] = {}
 
@@ -102,10 +116,16 @@ def check_slices(label4d: np.ndarray, image4d: np.ndarray, spacing, pairs: dict[
                 continue
             area[(ph, z)] = (t, int(np.isin(sl, (L.LV_BLOODPOOL, L.LV_MYOCARDIUM)).sum()),
                              int((sl == L.LV_BLOODPOOL).sum()))
-            d = image_disagreement(sl, image4d[:, :, z, t], sp)
-            if d >= IMAGE_FRAC:
-                add((t, z), f"outline off the blood edge by {d:.0%}")
-            for why in wall_problems(sl, sp):
+            if only is not None and (t, z) not in only:
+                continue
+            if cache is None:
+                found = _slice_checks(sl, image4d[:, :, z, t], sp)
+            else:
+                key = (t, z, sp, hashlib.blake2b(np.ascontiguousarray(sl).tobytes(), digest_size=16).digest())
+                found = cache.get(key)
+                if found is None:
+                    found = cache[key] = _slice_checks(sl, image4d[:, :, z, t], sp)
+            for why in found:
                 add((t, z), why)
     for ph in pairs:
         zs = [z for z in order if (ph, z) in area]

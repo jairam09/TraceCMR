@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -193,6 +194,10 @@ def setup_dock(dock, header: bool = True) -> None:
     dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)  # close = hide; no floating
     dock.setTitleBarWidget(_PanelHeader(dock, title) if header else QWidget(dock))
     dock._tracecmr_panel = title
+
+
+def _no_thumbnail(*_args, **_kwargs) -> None:
+    """Stands in for a layer's thumbnail update and refresh while TraceCMR transforms it (_one_view_update)."""
 
 
 class SmoothCanvas(FigureCanvasQTAgg):
@@ -1067,7 +1072,12 @@ class TraceCMRWidget(QWidget):
         page_function.addWidget(self.box_slices)
         self._table_timer = QTimer(self)
         self._table_timer.setSingleShot(True)
-        self._table_timer.timeout.connect(self._refresh_slice_table)
+        self._table_timer.timeout.connect(self._after_edit_refresh)
+        # bullseyes nobody is looking at are rebuilt once editing pauses, not after every dot (see compute)
+        self._bullseye_timer = QTimer(self)
+        self._bullseye_timer.setSingleShot(True)
+        self._bullseye_timer.timeout.connect(self._bullseyes_when_idle)
+        self._check_cache: dict = {}  # double-check results of unchanged slices (quality.check_slices)
 
         box = QGroupBox("Wall")
         lay = QVBoxLayout(box)
@@ -1718,6 +1728,8 @@ class TraceCMRWidget(QWidget):
     def load_session(self, session: Session, message: str = "") -> None:
         """Show a session in the viewer and fill the panel."""
         self.session = s = session
+        self._check_cache = {}  # its results belong to the previous scan's images
+        self._heart_centre = None
         s.mirror_segments = self.chk_mirror.isChecked()
         # Overlays first: removing the image while the outline layers remain shifts the frame/slice position,
         # the editor redraws for the new position, which shifts it again (an endless loop on some slices)
@@ -1829,11 +1841,54 @@ class TraceCMRWidget(QWidget):
         w = self._orient_affine() @ np.array([0.0, 0.0, y_mm, x_mm, 1.0])
         return float(w[2]), float(w[3])
 
+    @contextmanager
+    def _one_view_update(self, layers):
+        """Transform several layers at once. napari redoes the whole view (dimension ranges, then slicing every
+        layer) after each layer's change, and redraws each one's thumbnail for the layer list, hidden while
+        editing and unchanged by a turn. That made each step of the rotation slider cost several full updates.
+        Here the view is redone once at the end and the thumbnails are left alone."""
+        from contextlib import ExitStack
+
+        update = getattr(self.viewer, "_on_layers_change", None)
+        quiet = []
+        with ExitStack() as stack:
+            for layer in layers:
+                if update is not None:
+                    try:
+                        stack.enter_context(layer.events.affine.blocker(update))
+                    except Exception:
+                        pass
+                if update is not None and not {"_update_thumbnail", "refresh"} & set(vars(layer)):
+                    # an instance attribute hides the method: no thumbnail, and no re-slicing of each layer as
+                    # its transform is set (a turn in the image plane shows the same slice; the view update at
+                    # the end re-slices every layer anyway)
+                    try:
+                        layer._update_thumbnail = layer.refresh = _no_thumbnail
+                        quiet.append(layer)
+                    except Exception:
+                        pass
+            try:
+                yield
+            finally:
+                for layer in quiet:
+                    for name in ("_update_thumbnail", "refresh"):
+                        try:
+                            delattr(layer, name)
+                        except Exception:
+                            pass
+        if update is not None:
+            try:
+                update()
+            except Exception:
+                pass
+
     def _apply_orientation(self, recentre: bool = True) -> None:
         if self.session is None:
             return
-        for layer in list(self.viewer.layers):
-            self._orient_layer(layer)
+        layers = [la for la in self.viewer.layers if getattr(la, "ndim", 0) == 4]
+        with self._one_view_update(layers):
+            for layer in layers:
+                self._orient_layer(layer)
         if recentre:
             self._follow_heart()
             t = getattr(self, "_thumb_timer", None)
@@ -1857,13 +1912,19 @@ class TraceCMRWidget(QWidget):
     def _follow_heart(self) -> None:
         """Keep the heart in the middle of the view (same zoom) while the picture turns."""
         s = self.session
-        lab = s.label[:, :, :, s.ed_frame]
-        xs, ys, _ = np.nonzero(lab)
-        dx, dy, _ = s.spacing
-        if len(xs):
-            y_mm, x_mm = float(ys.mean() * dy), float(xs.mean() * dx)
+        key = (id(s), id(s.label), s.ed_frame)  # the contours are the same at every step of a slider drag
+        cached = getattr(self, "_heart_centre", None)
+        if cached is not None and cached[0] == key:
+            y_mm, x_mm = cached[1]
         else:
-            y_mm, x_mm = (s.image.shape[1] - 1) / 2 * dy, (s.image.shape[0] - 1) / 2 * dx
+            lab = s.label[:, :, :, s.ed_frame]
+            xs, ys, _ = np.nonzero(lab)
+            dx, dy, _ = s.spacing
+            if len(xs):
+                y_mm, x_mm = float(ys.mean() * dy), float(xs.mean() * dx)
+            else:
+                y_mm, x_mm = (s.image.shape[1] - 1) / 2 * dy, (s.image.shape[0] - 1) / 2 * dx
+            self._heart_centre = (key, (y_mm, x_mm))
         cam = self._camera
         centre = list(cam.center)
         centre[-2], centre[-1] = self._to_world_yx(y_mm, x_mm)
@@ -2033,7 +2094,10 @@ class TraceCMRWidget(QWidget):
             if shown is not None and shown.shape == self.session.label.shape:
                 for t, z in edited:  # the curves are the truth on these slices; keep them on the next show
                     shown[:, :, z, t] = self.session.label[:, :, z, t]
-            layer.data = self.session.label.transpose(3, 2, 1, 0).copy()
+            # apply_to returned a fresh array laid out like the layer's, so this is no copy: the layer and the
+            # session share it, as they do whenever nothing was edited (first line). Copying 13 MB through a
+            # transpose here, after every dot, was a noticeable share of the pause after letting go.
+            layer.data = np.ascontiguousarray(self.session.label.transpose(3, 2, 1, 0))
 
     def _clear_checked_flags(self, edited) -> None:
         """Once you've edited a slice, its 'double-check' note (base, apex, tiny cavity) goes away."""
@@ -2712,8 +2776,14 @@ class TraceCMRWidget(QWidget):
             for ph in ("ED", "ES"):
                 pairs[ph] = [(s.t_for(z, ph), z) for z in s.order if z in s.included[ph]
                              and np.isin(s.label[:, :, z, s.t_for(z, ph)], (1, 2)).any()]
-            found = quality.check_slices(s.label, s.image, s.spacing, pairs, list(s.order), s.valid_unsure())
-            self._checks = {k: v for k, v in found.items() if self._untouched(*k)}
+            # only slices still as Auto LV drew them are shown, so only those are checked (the slow part), and
+            # each just once while it stays unchanged
+            untouched = {k for lst in pairs.values() for k in lst if self._untouched(*k)}
+            if len(self._check_cache) > 4000:
+                self._check_cache.clear()
+            found = quality.check_slices(s.label, s.image, s.spacing, pairs, list(s.order), s.valid_unsure(),
+                                         only=untouched, cache=self._check_cache)
+            self._checks = {k: v for k, v in found.items() if k in untouched or self._untouched(*k)}
         except Exception:  # checks are a help; never let them break the results
             self._checks = {}
         if hasattr(self, "list"):
@@ -3414,6 +3484,37 @@ class TraceCMRWidget(QWidget):
         if self.study:
             self.series_panel.refresh(self.study, self.current_series)
 
+    @staticmethod
+    def _mouse_held() -> bool:
+        from qtpy.QtWidgets import QApplication
+
+        try:
+            return QApplication.mouseButtons() != Qt.MouseButton.NoButton
+        except Exception:
+            return False
+
+    def _after_edit_refresh(self) -> None:
+        """The results catching up a moment after an edit (or a change of ED/ES). Never in the middle of a drag:
+        a dot that stopped following the mouse while the numbers were redone felt like lag. Bullseyes that aren't
+        on screen wait until editing pauses (compute)."""
+        if self._mouse_held():
+            self._table_timer.start(150)
+            return
+        self._lazy_bullseyes = True
+        try:
+            self._refresh_slice_table()
+        finally:
+            self._lazy_bullseyes = False
+
+    def _bullseyes_when_idle(self) -> None:
+        if self._mouse_held():
+            self._bullseye_timer.start(500)
+            return
+        try:
+            self._draw_bullseyes()
+        except RuntimeError:  # the window closed before the timer fired
+            pass
+
     def _refresh_slice_table(self):
         """Per-slice volumes, EF and mass (Segment style), plus the total over the selected slices."""
         s = self.session
@@ -3534,7 +3635,10 @@ class TraceCMRWidget(QWidget):
         for key, lab in self.rv_labels.items():
             lab.setText(f"{rv[key]:.1f}" if rv else "–")
         self._bullseye_wall = wall
-        self._draw_bullseyes()
+        if getattr(self, "_lazy_bullseyes", False) and not self.canvas.isVisible():
+            self._bullseye_timer.start(1500)  # a fifth of a second of plotting, for a tab that isn't open
+        else:
+            self._draw_bullseyes()
         self._compare_changed()
         self._run_checks()
         self._refresh_slice_table()

@@ -2463,3 +2463,65 @@ def test_paravision_study_opens_as_one_stack(tmp_path):
         assert "ParaVision scan sessions" in panel.series_panel.lbl.text()
     finally:
         viewer.close()
+
+
+def test_results_wait_for_the_mouse_and_hidden_bullseyes_wait_for_a_pause(monkeypatch):
+    """After a dot is let go, the numbers catch up, but never while a button is still held (that froze the next
+    drag), and the Wall tab's bullseyes, when that tab isn't showing, only once editing pauses."""
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        panel.compute()
+        e = panel.editor
+        t, z = e._here()
+        key = next(k for k in sorted(e.curves) if k[:2] == (t, z) and k[2] == "endo")
+        e.push_undo()
+        e.move_point(key, 2, e.curves[key][2] + 2.0)
+        e._notify()
+        edv0 = panel.res_labels["edv_ul"].text()
+        monkeypatch.setattr(TraceCMRWidget, "_mouse_held", staticmethod(lambda: True))
+        panel._table_timer.stop()
+        panel._after_edit_refresh()
+        assert panel._table_timer.isActive() and panel.res_labels["edv_ul"].text() == edv0  # waited
+        monkeypatch.setattr(TraceCMRWidget, "_mouse_held", staticmethod(lambda: False))
+        panel._table_timer.stop()
+        drawn = panel._bullseye_drawn
+        panel._after_edit_refresh()
+        assert panel.res_labels["edv_ul"].text() != edv0  # the numbers caught up
+        assert panel._bullseye_timer.isActive() and panel._bullseye_drawn == drawn  # bullseyes: later
+        panel._bullseye_timer.stop()
+        panel._bullseyes_when_idle()
+        assert panel._bullseye_drawn != drawn
+        # the edit went back into the labels without copying them through a transpose
+        assert np.shares_memory(np.asarray(viewer.layers["contours"].data), panel.session.label)
+    finally:
+        viewer.close()
+
+
+def test_turning_updates_the_view_once_and_leaves_the_layers_as_they_were(monkeypatch):
+    """Each step of the rotation slider used to make napari redo the whole view once per layer; now once."""
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(_phantom_session())
+        calls = []
+        cls = type(viewer)
+        real = cls._on_layers_change
+
+        def counted(self, *a):
+            calls.append(1)
+            return real(self)
+
+        monkeypatch.setattr(cls, "_on_layers_change", counted)
+        layers = [la for la in viewer.layers if la.ndim == 4]
+        assert len(layers) >= 3
+        panel.set_orientation(angle=30)
+        assert len(calls) == 1
+        for la in layers:  # turned, and their own methods back
+            assert np.allclose(la.affine.affine_matrix, layers[0].affine.affine_matrix)
+            assert "refresh" not in vars(la) and "_update_thumbnail" not in vars(la)
+        assert not np.allclose(layers[0].affine.affine_matrix, np.eye(5))
+        panel.set_orientation(angle=0, flip=False)
+    finally:
+        viewer.close()

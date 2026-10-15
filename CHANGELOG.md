@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Editing is quicker. Letting go of a dot used to freeze the window for a moment while every result was redone (about 0.7 s on a slow computer); now about 0.1–0.25 s, and never while you're still holding the mouse. The Wall tab's bullseyes catch up once you pause, if that tab isn't open, and the double-check flags only re-check the slices that changed.
+- Dragging a dot redraws about twice as fast, and the rotation slider about a third faster per step, with exactly the same picture.
+
 ## [0.3.7] - 2026-10-15
 
 - Credit for Auto LV's model, everywhere it's used: Help → About TraceCMR and credits gives the full reference for the UCL team's paper (Shah et al., JCMR 2026), the Auto LV button and its messages name it, and every exported results file records the reference, so it travels with your data.

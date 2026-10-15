@@ -64,23 +64,23 @@ def spline_through(control: np.ndarray, n_dense: int = 400) -> np.ndarray:
     n = len(control)
     if n < 4:
         return control.copy()
-    p = np.vstack([control[-1:], control, control[:2]])  # wrap for a closed curve
-    out = []
+    p = np.vstack([control[-1:], control, control[:2]]).astype(float)  # wrap for a closed curve
     per_seg = max(2, n_dense // n)
-    for i in range(1, n + 1):
-        p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
-        t0 = 0.0
-        t1 = t0 + max(np.linalg.norm(p1 - p0), 1e-6) ** 0.5
-        t2 = t1 + max(np.linalg.norm(p2 - p1), 1e-6) ** 0.5
-        t3 = t2 + max(np.linalg.norm(p3 - p2), 1e-6) ** 0.5
-        tt = np.linspace(t1, t2, per_seg, endpoint=False)[:, None]
-        a1 = (t1 - tt) / (t1 - t0) * p0 + (tt - t0) / (t1 - t0) * p1
-        a2 = (t2 - tt) / (t2 - t1) * p1 + (tt - t1) / (t2 - t1) * p2
-        a3 = (t3 - tt) / (t3 - t2) * p2 + (tt - t2) / (t3 - t2) * p3
-        b1 = (t2 - tt) / (t2 - t0) * a1 + (tt - t0) / (t2 - t0) * a2
-        b2 = (t3 - tt) / (t3 - t1) * a2 + (tt - t1) / (t3 - t1) * a3
-        out.append((t2 - tt) / (t2 - t1) * b1 + (tt - t1) / (t2 - t1) * b2)
-    return np.vstack(out)
+    # all n segments at once (this runs on every redraw while a dot is dragged): segment i goes from
+    # control point i to i+1, shaped by its neighbours p0 and p3
+    p0, p1, p2, p3 = (p[k:k + n][:, None, :] for k in range(4))  # (n, 1, 2)
+    d = np.maximum(np.linalg.norm(np.diff(p, axis=0), axis=1), 1e-6) ** 0.5  # (n + 2,)
+    t0 = 0.0
+    t1 = (t0 + d[:n])[:, None, None]
+    t2 = t1 + d[1:n + 1][:, None, None]
+    t3 = t2 + d[2:n + 2][:, None, None]
+    tt = t1 + (t2 - t1) * (np.arange(per_seg) / per_seg)[None, :, None]  # (n, per_seg, 1)
+    a1 = (t1 - tt) / (t1 - t0) * p0 + (tt - t0) / (t1 - t0) * p1
+    a2 = (t2 - tt) / (t2 - t1) * p1 + (tt - t1) / (t2 - t1) * p2
+    a3 = (t3 - tt) / (t3 - t2) * p2 + (tt - t2) / (t3 - t2) * p3
+    b1 = (t2 - tt) / (t2 - t0) * a1 + (tt - t0) / (t2 - t0) * a2
+    b2 = (t3 - tt) / (t3 - t1) * a2 + (tt - t1) / (t3 - t1) * a3
+    return ((t2 - tt) / (t2 - t1) * b1 + (tt - t1) / (t2 - t1) * b2).reshape(-1, 2)
 
 
 def _adaptive_control(b: np.ndarray, n_start: int, tol_px: float, max_points: int) -> np.ndarray:
