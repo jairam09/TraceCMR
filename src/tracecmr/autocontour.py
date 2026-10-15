@@ -60,8 +60,15 @@ class ModelInfo:
     license: str
 
 
+# How the UCL model is credited wherever it is used (About box, Auto LV, messages, exported results).
+UCL_CITATION = ("Shah W, Stuckey DJ, Yao T, Wrobel M, Deniszczyc E, Feng Z, Anderson S, Campbell R, Muthurangu V, "
+                "Steeden J. Open-source pre-clinical image segmentation: mouse cardiac magnetic resonance imaging "
+                "datasets with a deep learning segmentation framework. J Cardiovasc Magn Reson 2026;28(1):102706. "
+                "doi:10.1016/j.jocmr.2026.102706")
+UCL_SOURCE = "https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation"
+
 MODELS = {
-    "ucl": ModelInfo("ucl", "UCL model (LV, 2D)", False, "myocardium", "GPL-3.0"),
+    "ucl": ModelInfo("ucl", "UCL model (Shah et al., JCMR 2026)", False, "myocardium", "GPL-3.0"),
     "calico": ModelInfo("calico", "Calico model (LV + RV, 3D)", True, None, "MIT"),
 }
 

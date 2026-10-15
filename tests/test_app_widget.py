@@ -569,6 +569,31 @@ def test_open_scan_starts_in_the_last_folder(qtbot, monkeypatch, tmp_path):
         viewer.close()
 
 
+def test_ucl_model_is_credited_in_the_app_and_in_exports():
+    """The UCL team's paper is credited where Auto LV is used: About box, Auto LV button, exported results."""
+    from tracecmr import autocontour as ac
+    from tracecmr.app import report
+
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    s = Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                spacing=ed.spacing, subject_id="phantom", papillary="myocardium", ed_frame=0, es_frame=1)
+    s.contoured_by = ac.MODELS["ucl"].label
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        head, body = panel.about_text()
+        assert "10.1016/j.jocmr.2026.102706" in body and "Steeden" in body and ac.UCL_SOURCE in body
+        assert "Shah et al., JCMR 2026" in panel.btn_auto.toolTip()
+        panel.load_session(s)
+        fn, wall, notes = s.compute()
+        out = report.build(s, fn, wall, None, notes)
+        flat = str(out)
+        assert ac.UCL_CITATION in flat
+    finally:
+        viewer.close()
+
+
 def test_contour_focus_and_per_slice_results():
     ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)

@@ -72,9 +72,19 @@ an anonymised scan that TraceCMR reads badly, that helps most.
 
 ## Credits and citing
 
-If you use Auto LV, please cite the model's authors: Shah, Stuckey, Steeden et al., *J Cardiovasc Magn Reson*
-2026 ([code, data and model](https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation)). Their model ships
-with TraceCMR as a separate file under their licence (GPL-3.0); see [docs/datasets.md](docs/datasets.md).
+Auto LV is the UCL team's published model, and TraceCMR was tested on their open mouse dataset. If you use Auto
+LV, please cite their paper:
+
+> Shah W, Stuckey DJ, Yao T, Wrobel M, Deniszczyc E, Feng Z, Anderson S, Campbell R, Muthurangu V, Steeden J.
+> Open-source pre-clinical image segmentation: mouse cardiac magnetic resonance imaging datasets with a deep
+> learning segmentation framework. *J Cardiovasc Magn Reson* 2026;28(1):102706.
+> [doi:10.1016/j.jocmr.2026.102706](https://doi.org/10.1016/j.jocmr.2026.102706)
+> ([code, data and model](https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation))
+
+The app shows this under Help → About TraceCMR and credits, names the model next to Auto LV, and writes the reference
+into every exported results file. GitHub's "Cite this repository" ([CITATION.cff](CITATION.cff)) lists it too.
+Their model ships with TraceCMR as a separate file under their licence (GPL-3.0); see
+[docs/datasets.md](docs/datasets.md).
 
 ## For developers
 

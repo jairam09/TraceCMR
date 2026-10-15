@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use TraceCMR, please cite it as below. If you use its Auto LV, please also cite the UCL model it runs (references)."
+title: "TraceCMR: open-source analysis of mouse cardiac MRI"
+type: software
+authors:
+  - family-names: Ram
+    given-names: Jaikrishnan
+repository-code: "https://github.com/jairam09/TraceCMR"
+license: MIT
+references:
+  - type: article
+    title: "Open-source pre-clinical image segmentation: mouse cardiac magnetic resonance imaging datasets with a deep learning segmentation framework"
+    authors:
+      - family-names: Shah
+        given-names: Wan
+      - family-names: Stuckey
+        given-names: Daniel J.
+      - family-names: Yao
+        given-names: Tina
+      - family-names: Wrobel
+        given-names: Mark
+      - family-names: Deniszczyc
+        given-names: Emily
+      - family-names: Feng
+        given-names: Zhiping
+      - family-names: Anderson
+        given-names: Stephanie
+      - family-names: Campbell
+        given-names: Ruaraidh
+      - family-names: Muthurangu
+        given-names: Vivek
+      - family-names: Steeden
+        given-names: Jennifer
+    journal: "Journal of Cardiovascular Magnetic Resonance"
+    year: 2026
+    volume: 28
+    issue: 1
+    start: 102706
+    doi: "10.1016/j.jocmr.2026.102706"
+    repository-code: "https://github.com/mrphys/Open-Source_Pre-Clinical_Segmentation"

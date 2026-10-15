@@ -42,6 +42,15 @@ SUMMARY_FIELDS = [  # (key in the results, label, unit)
 ]
 
 
+def _model_reference(session) -> str:
+    """The paper to cite when the contours came from a published model (travels with every exported result)."""
+    if "UCL" in (session.contoured_by or ""):
+        from ..autocontour import UCL_CITATION
+
+        return UCL_CITATION
+    return ""
+
+
 def _num(v):
     try:
         f = float(v)
@@ -80,6 +89,7 @@ def build(session, fn, wall, rv, notes) -> dict:
         ("Exported", _dt.datetime.now().strftime("%Y-%m-%d %H:%M")),
         ("TraceCMR version", __version__),
         ("Contoured by", session.contoured_by or ""),
+        ("Auto-contour model reference", _model_reference(session)),
         ("Papillary muscles counted as", session.papillary or "not set"),
         ("ED frame (default)", session.ed_frame),
         ("ES frame (default)", session.es_frame),
@@ -94,6 +104,7 @@ def build(session, fn, wall, rv, notes) -> dict:
     per_slice = [{k: _num(v) for k, v in r.items()} for r in session.per_slice()]
     all_notes = list(notes) + list(fn.flags) + (list(wall.flags) if wall else [])
     study = {"mouse": session.subject_id, "exported": settings[2][1], "contoured_by": session.contoured_by or "",
+             "model_reference": _model_reference(session),
              "papillary": session.papillary or "", "ed_frame": session.ed_frame, "es_frame": session.es_frame}
     study.update({k: _num(values[k]) for k, _, _ in SUMMARY_FIELDS if k in values})
     study.update({"n_slices_ed": row.get("n_slices_ed"), "n_slices_es": row.get("n_slices_es"),

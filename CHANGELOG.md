@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.7] - 2026-10-15
+
+- Credit for Auto LV's model, everywhere it's used: Help → About TraceCMR and credits gives the full reference for the UCL team's paper (Shah et al., JCMR 2026), the Auto LV button and its messages name it, and every exported results file records the reference, so it travels with your data.
+
 ## [0.3.6] - 2026-10-14
 
 - Contours show on every frame, not just ED and ES: contours drawn or made by Auto LV on any frame appear, and can be edited, when you go to that frame.

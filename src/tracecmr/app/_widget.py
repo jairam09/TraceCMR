@@ -710,7 +710,8 @@ class TraceCMRWidget(QWidget):
         self.btn_save = tool("Save", "mdi6.content-save-outline",
                              "Save this mouse's contours and choices (Ctrl+S). They reload when you reopen it.")
         self.btn_auto = tool("Auto LV", "mdi6.auto-fix",
-                             "Contour the LV on every slice at this frame (about 1 s).")
+                             "Contour the LV on every slice at this frame with UCL's published model (Shah et al., "
+                             "JCMR 2026; please cite it when you use Auto LV).")
         self.btn_endo = tool("Endo", "mdi6.circle-outline",
                              "Edit the endocardium (red).", True)
         self.btn_epi = tool("Epi", "mdi6.circle-outline",
@@ -2221,6 +2222,9 @@ class TraceCMRWidget(QWidget):
                       tooltip="Saves a report with versions and the recent log, ready to send")
         help_menu.add("Check for updates…", lambda: self.updates.check(manual=True), icon="mdi6.update",
                       tooltip="Installs a newer TraceCMR in place, without a new installer")
+        help_menu.addSeparator()
+        help_menu.add("About TraceCMR and credits", self.show_about, icon="mdi6.information-outline",
+                      tooltip="Version, licence, and the published work TraceCMR builds on")
         self.btn_help.setMenu(help_menu)
         self.btn_help.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
@@ -2274,7 +2278,8 @@ class TraceCMRWidget(QWidget):
             (self.btn_dcm, "Open scan", "Open one mouse's scan folder: a Bruker ParaVision study or DICOM files. "
                                         "Arrow: add UCL .h5 files.", None),
             (self.btn_save, "Save", "Save contours and choices; they reload with the mouse. Arrow: Save as, Export.", ["Ctrl", "S"]),
-            (self.btn_auto, "Auto LV", "Contour the LV on every slice at this frame (about 1 s).", None),
+            (self.btn_auto, "Auto LV", "Contour the LV on every slice at this frame with UCL's published model "
+                                       "(Shah et al., JCMR 2026).", None),
             (self.btn_endo, "Endocardium", "Edit the inner LV contour (red).", ["Q"]),
             (self.btn_epi, "Epicardium", "Edit the outer LV contour (light blue).", ["Q"]),
             (self.btn_rv, "Right ventricle", "Edit the RV contour (yellow).", ["Q"]),
@@ -3338,6 +3343,25 @@ class TraceCMRWidget(QWidget):
         c = getattr(self, "_compare", None)
         if c is not None:
             c.schedule()
+
+    def about_text(self) -> tuple[str, str]:
+        from .. import __version__
+        from .. import autocontour as ac
+
+        head = f"TraceCMR {__version__}: free, open-source analysis of mouse cardiac MRI (MIT licence)."
+        body = ("Auto LV uses the mouse heart segmentation model published by Shah, Stuckey, Steeden et al. at "
+                "UCL, unchanged (converted to run without TensorFlow), under the authors' licence (GPL-3.0). If you "
+                "use Auto LV, please cite their paper:\n\n" + ac.UCL_CITATION + "\n\nModel, code and data: "
+                + ac.UCL_SOURCE + "\n\nThe UCL team's open mouse dataset was also used to test TraceCMR. "
+                "TraceCMR is built on napari and uses the Inter typeface (SIL Open Font Licence).\n\n"
+                "https://github.com/jairam09/TraceCMR")
+        return head, body
+
+    def show_about(self) -> None:
+        head, body = self.about_text()
+        box = self._dark_box("About TraceCMR", head, body)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.exec()
 
     def _report_problem(self) -> None:
         from .support import report_problem
