@@ -5,18 +5,28 @@ Datasets do not store slices in a consistent order (in the UCL mouse data,
 from the labels rather than assumed.
 
 Rules, from anatomy:
-  1. Area profile (primary): the LV narrows toward the apex, so the blood pool
-     is smaller in the apical third of the stack than in the basal third.
+  1. Area profile (primary): the LV narrows toward the apex, so the whole LV
+     outline (blood pool + wall) is smaller in the apical third of the stack
+     than in the basal third. If the outline is not decisive, the blood pool
+     alone is used; if both are decisive and disagree, the detector refuses.
   2. Apical cap (confirmation): slices with myocardium but no blood pool
      occur only at the apex.
-  3. End slices (confirmation): the last blood-pool slice at the apex end is
-     smaller than the one at the base end.
+  3. End slices (confirmation): the LV outline on the last heart slice at the
+     apex end is smaller than the one at the base end.
 
 Rule 1 must be decisive, and no rule may disagree with it; otherwise the
 detector refuses and asks for the orientation to be given by hand.
 
-Validated against visual (anatomical) labels on 16 UCL mice: 16/16 correct.
-That is a small set with only 3 apex-first stacks; re-check on new datasets.
+Why the whole outline first: in an infarcted heart the apex can be dilated and
+thin-walled, and after contrast Auto LV calls the enhanced scar blood, so the
+blood pool alone can taper the wrong way (an infarcted mouse from a Bruker
+facility: the order came out flipped). The outer outline is much less affected: on that mouse it gave the
+right base, 1.7x, where the blood pool gave 1.03-1.17x; on 40 UCL mice the two
+agree on every decisive call.
+
+Validated against visual (anatomical) labels on 16 UCL mice: 16/16 correct
+(blood-pool rule). That is a small set with only 3 apex-first stacks; re-check on
+new datasets.
 """
 
 from __future__ import annotations
@@ -43,6 +53,17 @@ class Orientation:
     evidence: dict[str, str] = field(default_factory=dict)
 
 
+LV_CODES = [L.LV_BLOODPOOL, L.LV_MYOCARDIUM, L.SCAR, L.MVO]
+
+
+def _thirds(area: np.ndarray) -> tuple[str, float]:
+    """Which end's third of the slices holds more area, and by how many times."""
+    t = max(1, len(area) // 3)
+    first, last = float(area[:t].sum()), float(area[-t:].sum())
+    big, small = max(first, last), min(first, last)
+    return ("first" if first > last else "last"), big / small if small > 0 else big / 1e-9
+
+
 def _heart_slices(ci: CardiacImage) -> list[int]:
     if ci.label is None:
         raise ValueError(f"{ci.subject_id}: orientation needs a label")
@@ -61,22 +82,26 @@ def detect_base_apex(ci: CardiacImage) -> Orientation:
     zs = _heart_slices(ci)
     dx, dy, _ = ci.spacing
     blood = np.array([np.count_nonzero(ci.label[:, :, z] == L.LV_BLOODPOOL) for z in zs]) * dx * dy
+    whole = np.array([np.count_nonzero(np.isin(ci.label[:, :, z], LV_CODES)) for z in zs]) * dx * dy
 
-    # Rule 1: thirds of the area profile.
-    n = len(blood)
-    t = max(1, n // 3)
-    first_third, last_third = blood[:t].sum(), blood[-t:].sum()
-    if min(first_third, last_third) <= 0:
-        big, small = max(first_third, last_third), 1e-9
-    else:
-        big, small = max(first_third, last_third), min(first_third, last_third)
-    ratio = float(big / small)
-    vote_thirds = "first" if first_third > last_third else "last"
-    evidence = {"thirds": f"base={vote_thirds} (ratio {ratio:.2f})"}
-    if ratio < MIN_THIRDS_RATIO:
+    # Rule 1: thirds of the area profile, whole LV first, blood pool if that is not decisive.
+    vote_w, ratio_w = _thirds(whole)
+    vote_b, ratio_b = _thirds(blood)
+    evidence = {"thirds_whole_lv": f"base={vote_w} (ratio {ratio_w:.2f})",
+                "thirds_blood": f"base={vote_b} (ratio {ratio_b:.2f})"}
+    if ratio_w >= MIN_THIRDS_RATIO and ratio_b >= MIN_THIRDS_RATIO and vote_w != vote_b:
         raise OrientationUncertain(
-            f"{ci.subject_id}: blood pool areas at the two ends are too similar "
-            f"(ratio {ratio:.2f} < {MIN_THIRDS_RATIO}); give the orientation by hand"
+            f"{ci.subject_id}: the LV outline and the blood pool taper opposite ways (an infarct or a contour "
+            f"error?); give the orientation by hand"
+        )
+    if ratio_w >= MIN_THIRDS_RATIO:
+        vote_thirds, ratio = vote_w, ratio_w
+    elif ratio_b >= MIN_THIRDS_RATIO:
+        vote_thirds, ratio = vote_b, ratio_b
+    else:
+        raise OrientationUncertain(
+            f"{ci.subject_id}: LV areas at the two ends are too similar "
+            f"(ratio {max(ratio_w, ratio_b):.2f} < {MIN_THIRDS_RATIO}); give the orientation by hand"
         )
 
     # Rule 2: apical cap at exactly one end.
@@ -89,9 +114,9 @@ def detect_base_apex(ci: CardiacImage) -> Orientation:
     else:
         evidence["apical_cap"] = "not decisive"
 
-    # Rule 3: end slices with blood pool.
-    nz = blood[blood > 0]
-    if nz[0] != nz[-1]:
+    # Rule 3: the LV outline on the end slices that have a cavity.
+    nz = whole[blood > 0]
+    if len(nz) >= 2 and nz[0] != nz[-1]:
         vote_ends = "first" if nz[0] > nz[-1] else "last"
         evidence["end_slices"] = f"base={vote_ends}"
         if vote_ends != vote_thirds:

@@ -34,6 +34,36 @@ def test_cylinder_is_refused_not_guessed():
         detect_base_apex(ring_phantom())
 
 
+def _infarcted(base_first=True):
+    """A tapered heart whose apical half has a dilated cavity and a thin wall (an apical infarct), so the blood
+    pool is biggest at the apex while the whole LV outline still tapers toward it."""
+    ci = tapered_phantom(base_blood_mm=2.4, apex_blood_mm=1.8, wall_mm=1.0, base_first=True, apical_cap=False)
+    nz = ci.label.shape[2]
+    for z in range(nz // 2, nz):  # apical half: wall turned into cavity, except a thin outer rim
+        sl = ci.label[:, :, z]
+        lv = np.isin(sl, (L.LV_BLOODPOOL, L.LV_MYOCARDIUM))
+        from scipy import ndimage
+        rim = lv & ~ndimage.binary_erosion(lv, iterations=1)
+        sl[lv] = L.LV_BLOODPOOL
+        sl[rim] = L.LV_MYOCARDIUM
+    if not base_first:
+        ci.label = ci.label[:, :, ::-1].copy()
+        ci.image = ci.image[:, :, ::-1].copy()
+    return ci
+
+
+@pytest.mark.parametrize("base_first", [True, False])
+def test_infarcted_apex_does_not_flip_the_order(base_first):
+    ci = _infarcted(base_first)
+    blood = [np.count_nonzero(ci.label[:, :, z] == L.LV_BLOODPOOL) for z in range(ci.label.shape[2])]
+    assert max(blood[:2]) < max(blood[-2:]) if base_first else max(blood[:2]) > max(blood[-2:])  # cavity biggest at apex
+    try:
+        got = detect_base_apex(ci).base_end
+    except OrientationUncertain:
+        return  # refusing (and asking) is fine; flipping is not
+    assert got == ("first" if base_first else "last")
+
+
 def test_contradicting_cap_is_refused():
     ci = tapered_phantom(apical_cap=True, base_first=True)
     # Put a myocardium-only cap at the BASE end as well as removing it at the apex: contradiction.

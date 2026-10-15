@@ -270,6 +270,7 @@ class PvCine:
     times_ms: np.ndarray
     slice_positions_mm: np.ndarray
     subject_id: str
+    slice_normal: tuple | None = None  # unit normal in patient coordinates (ParaVision uses DICOM's LPS)
 
 
 def load_cine(scan: PvScan) -> PvCine:
@@ -281,4 +282,5 @@ def load_cine(scan: PvScan) -> PvCine:
     dz = float(np.median(np.abs(np.diff(dist)))) if len(dist) > 1 else scan.thickness_mm
     times = np.array(scan.frame_times_ms if scan.frame_times_ms else [np.nan] * scan.n_frames, float)
     return PvCine(data=data, spacing=(scan.pixel_mm[0], scan.pixel_mm[1], dz), times_ms=times,
-                  slice_positions_mm=dist, subject_id=scan.name)
+                  slice_positions_mm=dist, subject_id=scan.name,
+                  slice_normal=tuple(float(v) for v in scan.normal))

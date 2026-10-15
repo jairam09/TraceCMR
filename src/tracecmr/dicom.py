@@ -159,6 +159,7 @@ class DicomCine:
     times_ms: np.ndarray
     slice_positions_mm: np.ndarray
     subject_id: str
+    slice_normal: tuple | None = None  # unit normal in patient coordinates (LPS: +x left, +y back, +z head)
 
     def frame(self, t: int, papillary: str | None = None) -> CardiacImage:
         """One time frame as a CardiacImage (no label: contours come from elsewhere)."""
@@ -229,4 +230,5 @@ def load_dicom_cine(folder: str | Path, subject_id: str | None = None,
         times_ms=np.nanmean(times, axis=0),
         slice_positions_mm=slice_pos,
         subject_id=subject_id or folder.name,
+        slice_normal=tuple(float(v) for v in normal / (np.linalg.norm(normal) or 1.0)),
     )

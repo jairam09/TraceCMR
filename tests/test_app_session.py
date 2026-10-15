@@ -50,6 +50,28 @@ def test_detect_keeps_end_systole_when_the_apex_empties():
     assert "ES = frame 2" in s.auto_ed_es() and (s.ed_frame, s.es_frame) == (0, 2)
 
 
+def test_base_is_the_end_toward_the_head_when_the_scanner_says_so():
+    """With slice positions and a normal in patient coordinates (+z = head), the base is the head end, also when
+    the LV's shape tapers the other way (an infarcted, dilated apex); the user is told to check."""
+    s, _, _ = make_session(base_first=True)  # contours taper: base at slice 0
+    nz = s.image.shape[2]
+    pos = [float(z) for z in range(nz)]
+    head_last = Session(image=s.image, label=s.label, spacing=s.spacing, slice_positions_mm=pos,
+                        slice_normal=[0.0, -0.5, 0.86], ed_frame=0, es_frame=1)
+    assert head_last.head_end() == "last" and head_last.order == list(range(nz - 1, -1, -1))  # on opening
+    msg = head_last.auto_order()
+    assert head_last.order[0] == nz - 1 and "taper" in msg and "Flip" in msg  # geometry wins, user warned
+    head_first = Session(image=s.image, label=s.label, spacing=s.spacing, slice_positions_mm=pos,
+                         slice_normal=[0.0, 0.5, -0.86], ed_frame=0, es_frame=1)
+    assert head_first.head_end() == "first" and "agrees" in head_first.auto_order() and head_first.order[0] == 0
+    sideways = Session(image=s.image, label=s.label, spacing=s.spacing, slice_positions_mm=pos,
+                       slice_normal=[0.98, 0.0, 0.2], ed_frame=0, es_frame=1)
+    assert sideways.head_end() is None  # stack runs left-right: the contours decide
+    assert "basal third" in sideways.auto_order() and sideways.order[0] == 0
+    head_first.flip()
+    assert any("toward the head" in w for w in head_first.order_warnings())
+
+
 def test_reversed_order_warns_but_still_computes():
     s, _, _ = make_session(base_first=True)
     s.flip()

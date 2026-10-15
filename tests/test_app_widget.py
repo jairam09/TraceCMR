@@ -2403,6 +2403,7 @@ def test_paravision_study_opens_as_one_stack(tmp_path):
         s = panel.session
         assert s.image.shape == (16, 16, 3, 6) and s.separate_slices
         assert [float(s.image[0, 0, z, 0]) for z in range(3)] == [300.0, 200.0, 100.0]  # by position
+        assert s.head_end() == "last" and s.order[0] == 2  # the slice toward the head is the base, from the scanner
         assert any(x.kind == "Long axis" for x in panel.study)
         panel.open_study(tmp_path / "mri")  # a folder of studies
         assert panel.series_panel.mice.count() == 1

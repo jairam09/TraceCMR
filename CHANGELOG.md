@@ -4,6 +4,8 @@
 
 - Contours show on every frame, not just ED and ES: contours drawn or made by Auto LV on any frame appear, and can be edited, when you go to that frame.
 - The slice list keeps room for its slices on a short screen: the Mice and Series lists shrink (they scroll) instead of pushing the slices off the bottom.
+- Base and apex come from the scanner when it knows: for Bruker and DICOM scans, the slice toward the head is the base, as soon as the scan opens. Before, base and apex were guessed from the contours' taper, which an infarcted (dilated) apex can reverse; on an infarcted Bruker mouse it came out flipped. When the contours taper the other way, TraceCMR says so; Flip still overrides.
+- Without scanner positions (UCL files), the taper now uses the whole LV outline before the blood pool alone, which an infarct or a post-contrast scan can throw off.
 
 ## [0.3.5] - 2026-10-14
 

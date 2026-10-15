@@ -107,6 +107,9 @@ class Session:
     es_by_slice: dict[int, int] = field(default_factory=dict)
     frame_times_ms: list[float] | None = None
     slice_names: list[str] | None = None  # e.g. the series each slice came from
+    # the slice normal in the scanner's patient coordinates (DICOM LPS, also ParaVision's): +z points to the head.
+    # With slice_positions_mm it tells which end of the stack lies toward the head, i.e. the base of the heart.
+    slice_normal: list[float] | None = None
     # The model's own contours, kept apart from the user's corrected ones (training data for fine-tuning):
     # model_label holds the last auto-contour of each image, model_ran[z, t] says which images have one.
     model_label: np.ndarray | None = None
@@ -117,7 +120,8 @@ class Session:
             raise ValueError("image and label must both be (x, y, slice, time) with the same shape")
         nz = self.image.shape[2]
         if not self.order:
-            self.order = list(range(nz))
+            head = self.head_end()  # scanner geometry: the base of the heart is the end toward the head
+            self.order = list(range(nz - 1, -1, -1)) if head == "last" else list(range(nz))
         if not self.included:
             self.included = {"ED": set(range(nz)), "ES": set(range(nz))}
         if not self.reasons:
@@ -161,7 +165,8 @@ class Session:
         image = np.asarray(cine.data, dtype=np.float32)
         return cls(image=image, label=np.zeros(image.shape, dtype=np.uint8), spacing=cine.spacing,
                    subject_id=cine.subject_id, ed_frame=0, es_frame=0,
-                   slice_positions_mm=list(cine.slice_positions_mm), source=str(folder))
+                   slice_positions_mm=list(cine.slice_positions_mm), source=str(folder),
+                   slice_normal=None if cine.slice_normal is None else list(cine.slice_normal))
 
     @classmethod
     def from_dicom_files(cls, paths, name: str = "series", separate_slices: bool = False,
@@ -176,7 +181,8 @@ class Session:
         return cls(image=image, label=np.zeros(image.shape, dtype=np.uint8), spacing=cine.spacing,
                    subject_id=name, ed_frame=0, es_frame=0, slice_positions_mm=list(cine.slice_positions_mm),
                    source=str(paths[0].parent), separate_slices=separate_slices, frame_times_ms=times,
-                   slice_names=slice_names)
+                   slice_names=slice_names,
+                   slice_normal=None if cine.slice_normal is None else list(cine.slice_normal))
 
     # ---------- saving ----------
 
@@ -497,14 +503,42 @@ class Session:
         blood = (self.label == L.LV_BLOODPOOL).reshape(-1, self.label.shape[3])
         return [float(v) * dx * dy * dz for v in blood.sum(axis=0)]
 
+    HEAD_AXIS_MIN = 0.3  # the stack must run at least this much along the head-feet axis to decide from it
+
+    def head_end(self) -> str | None:
+        """Which end of the stack (slice-index order: "first" or "last") lies toward the subject's head, from the
+        scanner's slice positions and normal; None when they're missing or the stack runs mostly left-right or
+        front-back. In the mouse, as in people, the base of the heart lies toward the head and the apex toward the
+        feet, and the head-feet axis is the one a scanner gets right (the cradle goes in head first)."""
+        n, pos = self.slice_normal, self.slice_positions_mm
+        if n is None or pos is None or len(pos) != self.image.shape[2] or len(pos) < 2:
+            return None
+        nz = float(n[2])
+        if abs(nz) < self.HEAD_AXIS_MIN or pos[0] == pos[-1]:
+            return None
+        return "first" if pos[0] * nz > pos[-1] * nz else "last"
+
     def auto_order(self) -> str:
-        """Order slices base-first using the blood-pool taper. Returns a short status message."""
+        """Order slices base-first: from the scanner geometry when it is decisive (base toward the head), else from
+        the LV taper. Returns a short status message."""
+        nz = self.image.shape[2]
+        geo = self.head_end()
+        taper, why, o = None, "", None
         try:
             o = detect_base_apex(self.frame("ED", reorder=False))
+            taper = o.base_end
         except (OrientationUncertain, ValueError) as e:
-            return f"Couldn't tell base from apex ({e}). Set the order by hand."
-        nz = self.image.shape[2]
-        self.order = list(range(nz)) if o.base_end == "first" else list(range(nz - 1, -1, -1))
+            why = str(e)
+        base = geo or taper
+        if base is None:
+            return f"Couldn't tell base from apex ({why}). Set the order by hand."
+        self.order = list(range(nz)) if base == "first" else list(range(nz - 1, -1, -1))
+        if geo and taper and geo != taper:
+            return ("Ordered base to apex from the scanner's slice positions (the base is the end toward the head). "
+                    "The LV's shape tapers the other way, which an infarct can do: check, and Flip if needed.")
+        if geo:
+            return ("Ordered base to apex from the scanner's slice positions (the base is the end toward the head)"
+                    + ("; the LV's shape agrees." if taper else "."))
         return f"Ordered base to apex (basal third {o.thirds_ratio:.2f}× the apical)."
 
     def order_warnings(self) -> list[str]:
@@ -512,18 +546,25 @@ class Session:
         out = []
         active = [z for z in self.order if z in self.included["ED"]]
         ed = self._phase_stack(self.label, "ED")
-        areas = [int(np.count_nonzero(ed[:, :, z] == L.LV_BLOODPOOL)) for z in active]
+        lv = (L.LV_BLOODPOOL, L.LV_MYOCARDIUM, L.SCAR, L.MVO)  # the whole LV outline: an infarct can make the
+        areas = [int(np.count_nonzero(np.isin(ed[:, :, z], lv))) for z in active]  # apical cavity the biggest
         labeled = [a for a in areas if a > 0]
         if len(labeled) >= 3:
             k = max(1, len(labeled) // 3)
             base, apex = np.mean(labeled[:k]), np.mean(labeled[-k:])
             if apex > 1.25 * base:
-                out.append("The apex end has a larger blood pool than the base. The order may be reversed.")
+                out.append("The apex end of the LV is bigger than the base end. The order may be reversed.")
         if self.slice_positions_mm is not None and len(active) > 2:
             pos = [self.slice_positions_mm[z] for z in active]
             steps = np.sign(np.diff(pos))
             if not (np.all(steps > 0) or np.all(steps < 0)):
                 out.append("This order doesn't match the scanner's slice positions.")
+        head = self.head_end()
+        if head is not None and len(self.order) > 1:
+            nz = self.image.shape[2]
+            head_slice = 0 if head == "first" else nz - 1
+            if self.order.index(head_slice) > self.order.index(nz - 1 - head_slice):
+                out.append("The scanner's positions put the base at the other end (the base lies toward the head).")
         return out
 
     # ---------- results ----------

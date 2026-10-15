@@ -252,10 +252,15 @@ def _load_stack(stack: Series) -> Session:
     s = Session(image=image, label=np.zeros(image.shape, np.uint8), spacing=(*cines[0].spacing[:2], dz),
                 subject_id=stack.name, slice_positions_mm=positions, source=stack.source, separate_slices=True,
                 frame_times_ms=[float(t) for t in times] if np.all(np.isfinite(times)) else None,
-                slice_names=[p.name for p in stack.parts])
+                slice_names=[p.name for p in stack.parts], slice_normal=_normal(cines[0]))
     if len(counts) > 1:
         s.subject_id += f" (frames {counts[0]}–{counts[-1]} per slice; first {n_t} used)"
     return s
+
+
+def _normal(cine) -> list[float] | None:
+    n = getattr(cine, "slice_normal", None)
+    return None if n is None else [float(v) for v in n]
 
 
 def _cine(s: Series):
@@ -275,5 +280,5 @@ def _session_from_cine(cine, name: str, source: str) -> Session:
     times = cine.times_ms
     return Session(image=image, label=np.zeros(image.shape, np.uint8), spacing=tuple(cine.spacing), subject_id=name,
                    ed_frame=0, es_frame=0, slice_positions_mm=[float(x) for x in cine.slice_positions_mm],
-                   source=source,
+                   source=source, slice_normal=_normal(cine),
                    frame_times_ms=[float(x) for x in times] if len(times) and np.all(np.isfinite(times)) else None)
