@@ -453,6 +453,7 @@ class SeriesPanel(QWidget):
         self.btn_combine.clicked.connect(owner.combine_selected)
         self.list.itemClicked.connect(lambda it: owner.open_series(self._rows[self.list.row(it)]))
         self._rows: list[int] = []
+        self.avail_height = None  # callable: the height the panel is shown in (set once it is docked)
         self._fit_lists()
 
     # ---------- data folder ----------
@@ -545,12 +546,35 @@ class SeriesPanel(QWidget):
         self.btn_combine.setVisible(sum(1 for i in rows if study[i].n_slices == 1) > 1)
         self._fit_lists()
 
+    MICE_ROW, SERIES_ROW, SLICE_ROW = 24, 54, 38  # list row heights (slices: with their thumbnail)
+
     def _fit_lists(self) -> None:
-        """Size the mice and series lists to what they hold, so the slice list below gets the room."""
-        n = self.mice.count()
-        self.mice.setFixedHeight(min(max(n, 1), 5) * 24 + 6)
-        n = self.list.count()
-        self.list.setFixedHeight(min(max(n, 1), 3) * 54 + 6)
+        """Size the mice and series lists to what they hold, but keep room for up to 6 rows of the slice list
+        below: on a short screen the mice and series lists shrink first (they scroll), down to one row each."""
+        tree = getattr(self, "tree", None)
+        mice_rows, series_rows = min(max(self.mice.count(), 1), 5), min(max(self.list.count(), 1), 3)
+        want = 0
+        if tree is not None:
+            want = min(max(tree.topLevelItemCount(), 3), 6) * self.SLICE_ROW + 30  # + its header
+            avail = self.avail_height() if self.avail_height is not None else 0
+            if avail > 0:
+                lay = self.layout()
+                lay.activate()
+                overhead = (lay.minimumSize().height() - self.mice.minimumHeight() - self.list.minimumHeight()
+                            - tree.minimumHeight())
+
+                def total() -> int:
+                    return overhead + mice_rows * self.MICE_ROW + 6 + series_rows * self.SERIES_ROW + 6 + want
+
+                while total() > avail and (mice_rows > 1 or series_rows > 1):
+                    if mice_rows > 2 or series_rows == 1:
+                        mice_rows -= 1
+                    else:
+                        series_rows -= 1
+        self.mice.setFixedHeight(mice_rows * self.MICE_ROW + 6)
+        self.list.setFixedHeight(series_rows * self.SERIES_ROW + 6)
+        if tree is not None:
+            tree.setMinimumHeight(want)
 
     def add_slices(self, tree, buttons, note) -> None:
         """The slice list (order, ED/ES choices) of the open stack, under the series list."""
@@ -558,7 +582,7 @@ class SeriesPanel(QWidget):
         cap = QLabel("Slices")
         cap.setStyleSheet("font-weight: 600; margin-top: 6px;")
         lay.addWidget(cap)
-        tree.setMinimumHeight(230)
+        self.tree = tree
         lay.addWidget(tree, 1)
         row = QHBoxLayout()
         for b in buttons:
@@ -1300,6 +1324,22 @@ class TraceCMRWidget(QWidget):
             left = QScrollArea()
             left.setWidget(self.series_panel)
             left.setWidgetResizable(True)
+            self.series_panel.avail_height = lambda: left.viewport().height()
+            from qtpy.QtCore import QEvent, QObject
+
+            self._left_fit = QTimer(self)
+            self._left_fit.setSingleShot(True)
+            self._left_fit.timeout.connect(self.series_panel._fit_lists)
+            fit = self._left_fit
+
+            class _Resized(QObject):  # the panel got taller or shorter: share the room out again
+                def eventFilter(self, obj, ev):  # noqa: N802 (Qt name)
+                    if ev.type() == QEvent.Type.Resize and ev.oldSize().height() != ev.size().height():
+                        fit.start(0)
+                    return False
+
+            self._left_filter = _Resized(left.viewport())
+            left.viewport().installEventFilter(self._left_filter)
             left.setFrameShape(QFrame.Shape.NoFrame)
             left.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             left.setMinimumWidth(290)
@@ -1713,6 +1753,7 @@ class TraceCMRWidget(QWidget):
         self._shown_label = None  # labels the editor's curves were last built from (see _mode_changed)
         self._label_undo = None
         self.editor.on_change = self.lbl_auto.setText
+        self.editor.load_frame = self._curves_for_frame
         self.editor.on_edit = lambda: self._table_timer.start(250)
         self.editor.on_window = self.adjust_contrast
         self.editor.pan_mode = self.btn_pan.isChecked()
@@ -1993,6 +2034,25 @@ class TraceCMRWidget(QWidget):
         if changed and hasattr(self, "list"):
             self._relabel_items()
 
+    def _curves_for_frame(self, t: int) -> dict:
+        """Contours of a frame that isn't ED or ES on any slice, built the first time it is viewed (Auto LV on
+        every frame, or contours drawn there): what the user drew where nothing has changed it, else from the
+        labels."""
+        s = self.session
+        if s is None or not 0 <= t < s.label.shape[3]:
+            return {}
+        curves = curves_from_labels(s.label, [t])
+        saved = {k: v for k, v in s.curves_still_valid().items() if k[0] == t}
+        if saved:
+            slices = {k[:2] for k in saved}
+            curves = {k: v for k, v in curves.items() if k[:2] not in slices}
+            curves.update(saved)
+        shown = getattr(self, "_shown_label", None)
+        if shown is not None and shown.shape == s.label.shape:
+            shown[:, :, :, t] = s.label[:, :, :, t]
+            self._shown_frames.add(t)
+        return curves
+
     def _mode_changed(self, *args):
         """Switch between curve editing and the pixel brush, carrying edits across."""
         if self.session is None or self.editor is None:
@@ -2017,8 +2077,8 @@ class TraceCMRWidget(QWidget):
                 slices = {k[:2] for k in saved}
                 curves = {k: v for k, v in curves.items() if k[:2] not in slices}
                 curves.update(saved)
-            self.editor.show(curves, keep=keep)
             self._shown_label, self._shown_frames = np.array(lab, copy=True), set(frames)
+            self.editor.show(curves, keep=keep, frames=set(frames))
             self.editor.set_focus(ADD_TARGETS[self.cmb_add.currentIndex()])
         else:
             self.editor.set_active(False)
@@ -2602,6 +2662,8 @@ class TraceCMRWidget(QWidget):
         self.list.blockSignals(False)
         self._relabel_items()
         self._show_warnings()
+        if hasattr(self, "series_panel"):
+            self.series_panel._fit_lists()  # room for this stack's slices
 
     def _items(self):
         return [self.list.topLevelItem(i) for i in range(self.list.topLevelItemCount())]

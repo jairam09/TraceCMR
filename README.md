@@ -59,9 +59,9 @@ compared with the expert's contours:
 | Overlap with the expert (Dice), ED / ES | blood pool 0.91 / 0.87, myocardium 0.85 / 0.88 |
 
 That is the best case: the model's own lab, scanner and protocol. On scans from other scanners it can be clearly
-worse. On the first outside scan we tried (a Bruker cine taken after a contrast injection), the drafts had clear
-errors on several slices: myocardium in pieces, and no cavity found on half the slices at end-systole. Treat
-Auto LV as a first draft that saves clicks, not as the answer: every contour can be edited, and flagged slices are
+worse. On the first outside scan we tried (an infarcted mouse, Bruker cine after a contrast injection), it worked
+well on the non-infarcted slices and failed on the infarcted ones, where the enhanced scar looks like blood to a
+model trained on non-contrast cines. Treat Auto LV as a first draft that saves clicks, not as the answer: every contour can be edited, and flagged slices are
 marked in the slice list. Details: [docs/models.md](docs/models.md).
 
 ## Feedback

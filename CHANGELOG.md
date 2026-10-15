@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.6] - 2026-10-14
+
+- Contours show on every frame, not just ED and ES: contours drawn or made by Auto LV on any frame appear, and can be edited, when you go to that frame.
+- The slice list keeps room for its slices on a short screen: the Mice and Series lists shrink (they scroll) instead of pushing the slices off the bottom.
+
 ## [0.3.5] - 2026-10-14
 
 - Auto LV works straight after installing: the installers now include UCL's model and the small library that runs it (ONNX Runtime), so there's no 500 MB download and no TensorFlow. Copies installed earlier get a one-time download of about 40 MB instead. Same contours as before: the converted model gives the same answers as the authors' original.

@@ -476,6 +476,71 @@ def test_hand_drawn_rv_and_rv_volumes():
     finally:
         viewer.close()
 
+def test_contours_show_and_edit_on_any_frame():
+    """Contours on a frame that is neither ED nor ES (Auto LV on every frame, or drawn there) show up as editable
+    curves when that frame is viewed, edits reach the labels, and undo never clears them."""
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    mid = tapered_phantom(n_slices=8, base_blood_mm=2.0, apex_blood_mm=0.8, wall_mm=1.1)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    s = Session(image=np.stack([ed.image, mid.image, es.image], -1),
+                label=np.stack([ed.label, mid.label, es.label], -1), spacing=ed.spacing, subject_id="phantom",
+                papillary="blood_pool", ed_frame=0, es_frame=2)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(s)
+        e = panel.editor
+        z = int(viewer.dims.current_step[1])
+        assert not any(k[0] == 1 for k in e.curves)  # frame 1 isn't built until it is viewed
+        e.push_undo()  # an earlier edit on ED, to undo after frame 1 has loaded
+        e.move_point((0, z, "endo"), 0, e.curves[(0, z, "endo")][0] + 0.5)
+        viewer.dims.set_current_step(0, 1)
+        assert (1, z, "endo") in e.curves and (1, z, "epi") in e.curves
+        assert any(k[0] == 1 for k in e._keys)  # its dots are on screen
+        before = s.label[:, :, z, 1].copy()
+        e.undo()  # undoes the ED edit; frame 1's contours stay
+        assert (1, z, "endo") in e.curves
+        panel._sync_labels()
+        assert np.array_equal(s.label[:, :, z, 1], before)
+        e.push_undo()
+        pts = e.curves[(1, z, "endo")]
+        e.move_point((1, z, "endo"), 0, pts[0] + (pts[0] - pts.mean(axis=0)) * 0.5)  # pull one dot outwards
+        panel._sync_labels()
+        assert not np.array_equal(s.label[:, :, z, 1], before)
+    finally:
+        viewer.close()
+
+
+def test_slice_list_keeps_room_on_a_short_screen():
+    """On a short screen the mice and series lists shrink (they scroll) so the slice list still shows up to
+    6 slices, instead of being pushed below the bottom of the panel."""
+    ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
+    es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)
+    s = Session(image=np.stack([ed.image, es.image], -1), label=np.stack([ed.label, es.label], -1),
+                spacing=ed.spacing, subject_id="phantom", papillary="blood_pool", ed_frame=0, es_frame=1)
+    viewer = napari.Viewer(show=False)
+    try:
+        panel = TraceCMRWidget(viewer)
+        panel.load_session(s)
+        sp = panel.series_panel
+        for i in range(14):
+            sp.mice.addItem(f"Mouse{i}.h5")
+        for i in range(9):
+            sp.list.addItem(f"series {i}")
+        sp.avail_height = lambda: 2000  # a tall screen: everything at its usual size
+        sp._fit_lists()
+        assert sp.mice.height() == 5 * sp.MICE_ROW + 6 and sp.list.height() == 3 * sp.SERIES_ROW + 6
+        assert panel.list.minimumHeight() == 6 * sp.SLICE_ROW + 30
+        sp.avail_height = lambda: 420  # a short one
+        sp._fit_lists()
+        sp.layout().activate()
+        assert sp.mice.height() < 5 * sp.MICE_ROW + 6 and sp.list.height() <= 2 * sp.SERIES_ROW + 6
+        assert panel.list.minimumHeight() == 6 * sp.SLICE_ROW + 30  # the slices keep their room
+        assert sp.layout().minimumSize().height() <= 420 or (sp.mice.height(), sp.list.height()) == (30, 60)
+    finally:
+        viewer.close()
+
+
 def test_contour_focus_and_per_slice_results():
     ed = tapered_phantom(n_slices=8, base_blood_mm=2.4, apex_blood_mm=1.0, wall_mm=1.0)
     es = tapered_phantom(n_slices=8, base_blood_mm=1.6, apex_blood_mm=0.6, wall_mm=1.3)

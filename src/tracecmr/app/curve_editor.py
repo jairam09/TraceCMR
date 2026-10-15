@@ -1,6 +1,6 @@
 """Segment-style contour editing in napari.
 
-Each contour (endocardium, epicardium) on each slice of the ED and ES frames is a
+Each contour (endocardium, epicardium, RV) on each slice of every frame is a
 smooth closed curve through about 16-26 control points. Mouse, as in Segment's
 interpolation-point tool (no modes to switch):
 
@@ -16,7 +16,9 @@ interpolation-point tool (no modes to switch):
   [ / ]                   shrink / grow the selected contour by half a pixel all the way round
   Ctrl+Z / Undo           undo the last edit (drag, add, delete, smooth, snap, grow/shrink, clear)
 
-Only the slice and frame being viewed are drawn, which keeps dragging smooth.
+Only the slice and frame being viewed are drawn, which keeps dragging smooth. Contours of the ED and ES frames
+are built up front; those of any other frame the first time it is viewed (load_frame), so contours drawn or
+auto-drawn on any frame show and can be edited.
 When the user computes, edited contours are turned back into labels; untouched
 slices keep their original masks exactly.
 """
@@ -172,13 +174,18 @@ class CurveEditor:
         self._dims_attached = False
         self._shape_of: dict[Key, int] = {}  # index of each contour in the curves layer (this slice)
         self._last_draw = 0.0
+        self.load_frame = None  # callback(frame) -> {key: points}: a frame's contours, built when first viewed
+        self.loaded_frames: set[int] | None = None  # frames whose contours are in self.curves (None = all)
 
     # ---------- layers ----------
 
-    def show(self, curves: dict[Key, np.ndarray], keep: set[tuple[int, int]] | None = None) -> None:
+    def show(self, curves: dict[Key, np.ndarray], keep: set[tuple[int, int]] | None = None,
+             frames: set[int] | None = None) -> None:
         """Show these contours for editing. Slices (t, z) in `keep` are unchanged since the last show: they
-        keep their current dots, and stay smoothed (dots hidden) if they were."""
+        keep their current dots, and stay smoothed (dots hidden) if they were. `frames`: the frames `curves`
+        covers; any other frame is built with load_frame when it is first viewed (None: curves covers all)."""
         keep = keep or set()
+        self.loaded_frames = None if frames is None else set(frames)
         new = {k: v.copy() for k, v in curves.items() if k[:2] not in keep}
         new.update({k: v for k, v in self.curves.items() if k[:2] in keep})
         hidden = {k for k in self.hidden if k[:2] in keep and k in new}
@@ -203,6 +210,7 @@ class CurveEditor:
             self.viewer.dims.events.current_step.connect(self._on_step)
             self._dims_attached = True
         self._view = self._here()
+        self._load_frame(self._view[0])
         self._refresh_layers()
         self.set_active(True)
 
@@ -269,7 +277,24 @@ class CurveEditor:
             return
         if self.points is not None and self._here() != getattr(self, "_view", None):
             self._view = self._here()
+            self._load_frame(self._view[0])
             self._refresh_layers()
+
+    def _load_frame(self, t: int) -> None:
+        """Bring in the contours of frame t the first time it is viewed. They count as having been there all
+        along, so they go into the undo history too (undo must never drop or clear them)."""
+        if self.loaded_frames is None or t in self.loaded_frames or self.load_frame is None:
+            return
+        self.loaded_frames.add(t)
+        try:
+            extra = {k: np.array(v, dtype=float) for k, v in (self.load_frame(t) or {}).items() if k[0] == t}
+        except Exception:  # a contour that can't be turned into dots stays as it is in the labels
+            extra = {}
+        extra = {k: v for k, v in extra.items() if k not in self.curves}
+        self.curves.update(extra)
+        for snap in self._undo + self._redo + list(getattr(self, "_redo_saved", [])):
+            for k, v in extra.items():
+                snap[0].setdefault(k, v.copy())
 
     def _rows(self) -> tuple[np.ndarray, list[Key]]:
         t0, z0 = self._here()

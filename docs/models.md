@@ -40,10 +40,12 @@ Averaging softens the outer edge, so the epicardium cutoff (P(myo) + P(blood) ne
 re-chosen for it, the same way as before: on UCL's 15 validation mice, the cutoff giving the smallest mass bias
 (0.6; it is 0.9 for one pass), then reported once on the 25 test mice.
 
-Steadier is not the same as right. On that outside scan (a cine acquired after a contrast injection) the averaged
-contours still had clear errors on several slices: myocardium in pieces and no cavity on half the slices at
-end-systole. The model has simply never seen scans like this: it was trained only on UCL's mice, scanner and
-protocol, and this was a different kind of mouse, a different scanner and protocol, and acquired after contrast.
+Steadier is not the same as right. That outside scan is of an infarcted mouse, acquired after a contrast
+injection. Looking through it in the app: Auto LV works well on the non-infarcted slices and fails on the
+infarcted ones (myocardium in pieces, cavity wrong or missing). After contrast the infarct is bright (late
+enhancement), and a model trained on non-contrast cines reads bright as blood. The model has simply never seen
+scans like this: it was trained only on UCL's mice, scanner and protocol (its 11 MI mice were not contrast
+scans).
 The fix is training data from such scans (TraceCMR keeps the model's draft next to every corrected contour, so
 corrected scans become training pairs), not more tricks at run time.
 
