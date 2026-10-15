@@ -1,0 +1,26 @@
+# One-off cleanup after rewriting history: move the release tags to the rewritten commits and delete the merged
+# branches. Actions -> "retag" -> Run workflow.
+name: retag
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move the release tags; delete the merged branches
+        run: |
+          set -e
+          git tag -f v0.3.4 96d5330dbdda2c8d794b54b176182b56c291c0cf
+          git tag -f v0.3.5 b0fee49dbb05e3bdc107ac53d7070fd669807d69
+          git tag -f ucl-model-1 0076f5836508d074b27a26847bd31bfa4af176df
+          git push -f origin refs/tags/v0.3.4 refs/tags/v0.3.5 refs/tags/ucl-model-1
+          git push origin --delete bruker-import onnx-auto-lv || true
+          git ls-remote origin
