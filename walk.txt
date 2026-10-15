@@ -1,0 +1,28 @@
+WARNING: Detected software OpenGL backend, which is known to be broken on macOS Tahoe (26.6.2)
+WARNING: QOpenGLWidget is not supported on this platform.
+OK   start_screen 1608x649 
+OK   tour_appears tour opened by itself 
+OK   tour_01_start_the_tour  
+OK   tour_02_next  
+OK   tour_03_next  
+OK   tour_04_next  
+OK   tour_05_next  
+OK   tour_06_next  
+OK   tour_07_next  
+OK   tour_08_next  
+OK   tour_09_next  
+OK   tour_10_next  
+OK   tour_11_done  
+OK   tour_closed closed 
+OK   open_mouse Mouse1: (256, 256, 10, 20), ED 0 ES 8 
+OK   results_function {'edv_ul': 74.7, 'esv_ul': 22.7, 'sv_ul': 52.0, 'ef_pct': 69.6, 'mass_ed_mg': 114.1, 'mass_es_mg': 124.8, 'n_slices_ed': 7, 'n_slices_es': 7} 
+OK   per_slice_detect ED/ES set per slice: mostly ED = frame 0, ES = frame 8; 0 slice(s) differ. 
+OK   ed_es_view open 
+OK   save_figure Mouse1_slice5_ED_ES.png (160 KB) 
+OK   ed_es_closed closed 
+OK   results_wall wall tab shown 
+OK   export_all 3 files: Mouse1__742d7dbc, Mouse1_TraceCMR_results.xlsx, study_summary.xlsx 
+OK   save_contours /Users/runner/Documents/TraceCMR results/Mouse1__742d7dbc/Mouse1.tracecmr.npz 
+OK   auto_lv_setup ready out of the box, no setup needed 
+OK   auto_lv_run frame 11: 7 slices contoured in 16 s · Wall, slice 5: mean 1.73 mm (range 1.41–2.30). Blue thin → red thick (0.4–1.6 mm). No septum here (no RV): Wall menu → S 
+{"ok": true, "failed": [], "errors": 0}

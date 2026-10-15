@@ -1,0 +1,172 @@
+{
+  "ok": true,
+  "steps": [
+    {
+      "name": "start_screen",
+      "ok": true,
+      "note": "1608x649",
+      "seconds": 0.0,
+      "shot": "01_start_screen.png"
+    },
+    {
+      "name": "tour_appears",
+      "ok": true,
+      "note": "tour opened by itself",
+      "seconds": 0.44,
+      "shot": "02_tour_appears.png"
+    },
+    {
+      "name": "tour_01_start_the_tour",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "03_tour_01.png"
+    },
+    {
+      "name": "tour_02_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "04_tour_02.png"
+    },
+    {
+      "name": "tour_03_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "05_tour_03.png"
+    },
+    {
+      "name": "tour_04_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "06_tour_04.png"
+    },
+    {
+      "name": "tour_05_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "07_tour_05.png"
+    },
+    {
+      "name": "tour_06_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "08_tour_06.png"
+    },
+    {
+      "name": "tour_07_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "09_tour_07.png"
+    },
+    {
+      "name": "tour_08_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "10_tour_08.png"
+    },
+    {
+      "name": "tour_09_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "11_tour_09.png"
+    },
+    {
+      "name": "tour_10_next",
+      "ok": true,
+      "seconds": 0.0,
+      "shot": "12_tour_10.png"
+    },
+    {
+      "name": "tour_11_done",
+      "ok": true,
+      "seconds": 0.01
+    },
+    {
+      "name": "tour_closed",
+      "ok": true,
+      "note": "closed",
+      "seconds": 0.0,
+      "shot": "13_tour_closed.png"
+    },
+    {
+      "name": "open_mouse",
+      "ok": true,
+      "note": "Mouse1: (256, 256, 10, 20), ED 0 ES 8",
+      "seconds": 13.16,
+      "shot": "14_open_mouse.png"
+    },
+    {
+      "name": "results_function",
+      "ok": true,
+      "note": "{'edv_ul': 74.7, 'esv_ul': 22.7, 'sv_ul': 52.0, 'ef_pct': 69.6, 'mass_ed_mg': 114.1, 'mass_es_mg': 124.8, 'n_slices_ed': 7, 'n_slices_es': 7}",
+      "seconds": 0.87,
+      "shot": "15_results_function.png"
+    },
+    {
+      "name": "per_slice_detect",
+      "ok": true,
+      "note": "ED/ES set per slice: mostly ED = frame 0, ES = frame 8; 0 slice(s) differ.",
+      "seconds": 5.12,
+      "shot": "16_per_slice_detect.png"
+    },
+    {
+      "name": "ed_es_view",
+      "ok": true,
+      "note": "open",
+      "seconds": 1.2,
+      "shot": "17_ed_es_view.png"
+    },
+    {
+      "name": "save_figure",
+      "ok": true,
+      "note": "Mouse1_slice5_ED_ES.png (160 KB)",
+      "seconds": 0.23
+    },
+    {
+      "name": "ed_es_closed",
+      "ok": true,
+      "note": "closed",
+      "seconds": 0.51
+    },
+    {
+      "name": "results_wall",
+      "ok": true,
+      "note": "wall tab shown",
+      "seconds": 2.39,
+      "shot": "18_results_wall.png"
+    },
+    {
+      "name": "export_dialog",
+      "ok": true,
+      "note": "Everything for Mouse1 is in\n/Users/runner/Documents/TraceCMR results/Mouse1__742d7dbc\n\n\u2022 Mouse1_TraceCMR_results.xlsx\n\u2022 20 images in images/\n\u2022 its row in study_summary.xlsx (TraceCMR results)",
+      "shot": "19_export_dialog.png"
+    },
+    {
+      "name": "export_all",
+      "ok": true,
+      "note": "3 files: Mouse1__742d7dbc, Mouse1_TraceCMR_results.xlsx, study_summary.xlsx",
+      "seconds": 3.23,
+      "shot": "20_export_all.png"
+    },
+    {
+      "name": "save_contours",
+      "ok": true,
+      "note": "/Users/runner/Documents/TraceCMR results/Mouse1__742d7dbc/Mouse1.tracecmr.npz",
+      "seconds": 2.28
+    },
+    {
+      "name": "auto_lv_setup",
+      "ok": true,
+      "note": "ready out of the box, no setup needed",
+      "seconds": 0.0,
+      "shot": "21_auto_lv_setup.png"
+    },
+    {
+      "name": "auto_lv_run",
+      "ok": true,
+      "note": "frame 11: 7 slices contoured in 16 s \u00b7 Wall, slice 5: mean 1.73 mm (range 1.41\u20132.30). Blue thin \u2192 red thick (0.4\u20131.6 mm). No septum here (no RV): Wall menu \u2192 S",
+      "seconds": 17.07,
+      "shot": "22_auto_lv_run.png"
+    }
+  ],
+  "errors": []
+}

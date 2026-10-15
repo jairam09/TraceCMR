@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "steps": [
+    {
+      "name": "started",
+      "ok": true,
+      "note": "TraceCMR 0.3.7, updates from latest-0.3.8.json"
+    },
+    {
+      "name": "mouse_open",
+      "ok": true,
+      "note": "Mouse1"
+    },
+    {
+      "name": "card_appears_by_itself",
+      "ok": true,
+      "note": "available: TraceCMR 0.3.8 is available | You have 0.3.7. Updating takes under a minute and keeps your settings and results. | What's new:\n\u2022  Test patch 0.3.8\n\u2022  Made by scripts/make_test_patches.py"
+    },
+    {
+      "name": "downloaded",
+      "ok": true,
+      "note": "To finish, TraceCMR closes, installs it and opens again (about half a minute). Your contours are saved first."
+    },
+    {
+      "name": "restart_now",
+      "ok": true,
+      "note": "clicked; TraceCMR should close and the helper run"
+    }
+  ],
+  "error": ""
+}

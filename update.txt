@@ -1,0 +1,7 @@
+patches: {'broken': 'file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.3.98.json', 'good': 'file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.3.99.json', 'needs': 'file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.4.0.json'}
+OK   installed_copy_can_patch_itself {"version": "0.3.8", "site": "/Users/runner/TraceCMR/lib/python3.12/site-packages", "python": "/Users/runner/TraceCMR/bin/python", "reopen_with": [["open", "/Users/runner/Applications/TraceCMR.app"], "/Users/runner/Documents"]} 
+OK   needs_new_packages_is_refused {"offered": "0.4.0", "refused_because": ["numpy>=99 (have 2.5.4)"]} 
+OK   broken_patch_is_rolled_back {"version": "0.3.98", "result": {"from": "0.3.8", "to": "0.3.98", "ok": false, "rolled_back": true, "message": "The update to 0.3.98 couldn't be installed, so TraceCMR is still 0.3.8. Nothing else changed.", "time": "2026-10-15 16:43:35", "detail": "the new version didn't start: Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/Users/runner/TraceCMR/lib/python 
+OK   good_patch_installs {"version": "0.3.99", "result": {"from": "0.3.8", "to": "0.3.99", "ok": true, "rolled_back": false, "message": "Updated to TraceCMR 0.3.99.", "time": "2026-10-15 16:43:50", "notes": []}, "helper_exit": 0, "reopened": true, "seconds": 7.6, "after": "0.3.99"} 
+OK   next_start_reads_the_result_once "Updated to TraceCMR 0.3.99." 
+{"ok": true, "failed": []}

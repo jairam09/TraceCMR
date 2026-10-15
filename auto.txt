@@ -1,0 +1,58 @@
+out of the box: {'backend': 'onnx', 'model': '/Users/runner/TraceCMR/models/ucl_seg459.onnx', 'bundled_model_present': True, 'licence_beside_it': True}
+bundled model: {'seconds': 5.4, 'slices': 8, 'dice_blood': 0.921, 'dice_myo': 0.873}
+[   0.3s] model: Downloading the model: UCL model (19 MB)
+[   0.5s] model: Checking UCL model (19 MB)
+[   0.8s] model: Downloading the model: UCL-LICENSE.txt
+[   0.8s] model: Model ready
+[   0.8s] runtime: Installing ONNX Runtime (about 20 MB)
+[   1.5s] runtime: Installing ONNX Runtime: getting onnxruntime<2,>=1.20
+[   1.6s] runtime: Installing ONNX Runtime: getting onnxruntime-1.31.0-cp312-cp312-macosx_14_0_arm64.whl
+[   2.0s] runtime: Installing ONNX Runtime: unpacking
+[   2.7s] check: Checking that the model runs
+[   3.0s] done: Auto-contouring is ready
+downloaded model: {'seconds': 4.2, 'slices': 8, 'dice_blood': 0.921, 'dice_myo': 0.873}
+{
+ "python": "/Users/runner/TraceCMR/bin/python",
+ "tta": true,
+ "steps": [
+  "Downloading the model: UCL model (19 MB)",
+  "Checking UCL model (19 MB)",
+  "Downloading the model: UCL-LICENSE.txt",
+  "Model ready",
+  "Installing ONNX Runtime (about 20 MB)",
+  "Installing ONNX Runtime: getting onnxruntime<2,>=1.20",
+  "Installing ONNX Runtime: getting onnxruntime-1.31.0-cp312-cp312-macosx_14_0_arm64.whl",
+  "Installing ONNX Runtime: unpacking",
+  "Checking that the model runs",
+  "Auto-contouring is ready"
+ ],
+ "out_of_the_box": {
+  "backend": "onnx",
+  "model": "/Users/runner/TraceCMR/models/ucl_seg459.onnx",
+  "bundled_model_present": true,
+  "licence_beside_it": true
+ },
+ "bundled_run": {
+  "seconds": 5.4,
+  "slices": 8,
+  "dice_blood": 0.921,
+  "dice_myo": 0.873
+ },
+ "runtime_removed": true,
+ "needs_setup_now": true,
+ "setup_seconds": 3.0,
+ "app_imports_after_setup": true,
+ "numpy_h5py_onnxruntime": "2.5.4 3.14.0 1.31.0",
+ "after_setup": {
+  "backend": "onnx",
+  "model": "/Users/runner/.tracecmr/models/ucl/ucl_seg459.onnx"
+ },
+ "setup_run": {
+  "seconds": 4.2,
+  "slices": 8,
+  "dice_blood": 0.921,
+  "dice_myo": 0.873
+ },
+ "same_as_bundled": true,
+ "ok": true
+}
