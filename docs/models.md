@@ -42,7 +42,10 @@ re-chosen for it, the same way as before: on UCL's 15 validation mice, the cutof
 
 Steadier is not the same as right. On that outside scan (a cine acquired after a contrast injection) the averaged
 contours still had clear errors on several slices: myocardium in pieces and no cavity on half the slices at
-end-systole. Enhanced myocardium after contrast may look like blood to a model trained on non-contrast cines.
+end-systole. The model has simply never seen scans like this: it was trained only on UCL's mice, scanner and
+protocol, and this was a different kind of mouse, a different scanner and protocol, and acquired after contrast.
+The fix is training data from such scans (TraceCMR keeps the model's draft next to every corrected contour, so
+corrected scans become training pairs), not more tricks at run time.
 
 ## Accuracy on UCL's data
 
