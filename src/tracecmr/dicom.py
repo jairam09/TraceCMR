@@ -175,6 +175,14 @@ class DicomCine:
         )
 
 
+def _frame_times(times: np.ndarray) -> np.ndarray:
+    """Mean trigger time of each frame over the slices; NaN where no slice has one (e.g. a scan that isn't a
+    cine), without numpy's "mean of empty slice" warning."""
+    ok = np.isfinite(times)
+    n = ok.sum(axis=0)
+    return np.where(n > 0, np.where(ok, times, 0.0).sum(axis=0) / np.maximum(n, 1), np.nan)
+
+
 def load_dicom_cine(folder: str | Path, subject_id: str | None = None,
                     paths: list[Path] | None = None) -> DicomCine:
     """Load a short-axis cine series from a folder of DICOM files (or an explicit file list).
@@ -227,7 +235,7 @@ def load_dicom_cine(folder: str | Path, subject_id: str | None = None,
     return DicomCine(
         data=data,
         spacing=(col_spacing, row_spacing, abs(dz)),
-        times_ms=np.nanmean(times, axis=0),
+        times_ms=_frame_times(times),
         slice_positions_mm=slice_pos,
         subject_id=subject_id or folder.name,
         slice_normal=tuple(float(v) for v in normal / (np.linalg.norm(normal) or 1.0)),

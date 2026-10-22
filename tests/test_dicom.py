@@ -136,3 +136,15 @@ def test_enhanced_multiframe(tmp_path):
             assert cine.data[5, 5, z, t] == 100 * z + t
     assert np.allclose(cine.times_ms, [0, 12.5, 25, 37.5])
     assert cine.spacing[2] == pytest.approx(1.0)
+
+
+def test_frame_times_without_trigger_times_give_nan_quietly():
+    import warnings
+
+    from tracecmr.dicom import _frame_times
+
+    t = np.array([[0.0, 10.0, np.nan], [2.0, 12.0, np.nan]])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # numpy's "mean of empty slice" went into every non-cine scan's log
+        out = _frame_times(t)
+    assert np.allclose(out[:2], [1.0, 11.0]) and np.isnan(out[2])

@@ -1450,7 +1450,7 @@ class TraceCMRWidget(QWidget):
         self._show_study(folder, found)
 
     def _show_study(self, folder, found) -> None:
-        from .study import auto_stacks
+        from .study import auto_stacks, best_first_series
 
         stacks = auto_stacks(found)  # one cine per slice -> one short-axis stack, parts listed under it
         for st in stacks:  # name stacks after the mouse folder, so saved contours are easy to find
@@ -1458,8 +1458,7 @@ class TraceCMRWidget(QWidget):
         first = len(self.study)
         self.study.extend(stacks + found)
         new = self.study[first:]
-        sax = [i for i, s in enumerate(new) if s.kind == "Short axis" and s.n_slices > 1]
-        self.open_series(first + (sax[0] if sax else 0))
+        self.open_series(first + best_first_series(new))
 
     def open_series(self, i: int) -> None:
         """Switch to series i, keeping edits made to the one being left. A slice of a stack opens the

@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- Checked against public ParaVision example data from two more software versions (ParaVision 5.1 from 2011, and 360 V3.6): every 2D scan opens, and the images read straight from the scanner's files match Bruker's own NIfTI and DICOM exports exactly.
+- The first scan opened in a study is a cine stack, however the lab named its scans; before, a scan whose name merely contained "sa" (a "sat" saturation band, "sagittal") could be taken for the short axis.
+- A study whose slice positions don't step along the slices' normal no longer gets a slice gap of 0 (which made every volume 0).
+- Spectroscopy scans are skipped with a plain reason, and scans that aren't cines no longer write a warning to the log.
+
 ## [0.3.8] - 2026-10-22
 
 - Help → Report a problem now opens an email to tracecmr.support@gmail.com, and the report says what TraceCMR found in the scan folders you opened: each scan's or series' layout and parameters, and anything it skipped and why (never images, and never animal, study or patient names). If your scans don't open, that report is what we need to fix it.

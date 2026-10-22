@@ -13,6 +13,8 @@ still reorder slices in the panel).
 
 from __future__ import annotations
 
+import re
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,13 +27,18 @@ KINDS = ("Short axis", "Long axis", "LGE", "Other")
 
 
 def guess_kind(description: str) -> str:
-    """Guess the series type from its DICOM description / protocol name."""
-    d = " " + description.lower().replace("_", " ").replace("-", " ") + " "
-    if any(k in d for k in ("lge", "late", "scar", " psir", " de ", "delayed")):
+    """Guess the series type from its DICOM description / protocol name. Whole words only: "sat" (a saturation
+    band), "sagittal" or "template" must not read as short axis or late enhancement."""
+    d = " " + re.sub(r"[_\-.]+", " ", description.lower()) + " "
+
+    def has(*patterns):
+        return any(re.search(rf"(?<![a-z]){p}(?![a-z])", d) for p in patterns)
+
+    if has("lge", "late", "scar", "psir", "de", "delayed"):
         return "LGE"
-    if any(k in d for k in ("2ch", "3ch", "4ch", " lax", "long axis", "longaxis", " la ", "2 ch", "4 ch")):
+    if has(r"[234] ?ch(amber)?", "lax", r"long ?axis", "la", "vla", "hla"):
         return "Long axis"
-    if any(k in d for k in (" sax", " sa ", "short axis", "shortaxis", "cine sa", " sa")):
+    if has(r"sax\d*", r"sa\d*", r"short ?axis"):
         return "Short axis"
     return "Other"
 
@@ -197,6 +204,20 @@ def scan_bruker_study(folder: str | Path) -> list[Series]:
         out.append(s)
     out.sort(key=lambda s: (KINDS.index(s.kind), s.pv.number))
     return out
+
+
+def best_first_series(series: list[Series]) -> int:
+    """Which series to open first: a short-axis cine stack if there is one; else any cine with several slices
+    (labs name their scans in many ways); else a short-axis stack; else a cine; else the first."""
+    tests = (lambda s: s.kind == "Short axis" and s.n_slices > 1 and s.n_frames > 1,
+             lambda s: s.kind not in ("Long axis", "LGE") and s.n_slices > 1 and s.n_frames > 1,
+             lambda s: s.kind == "Short axis" and s.n_slices > 1,
+             lambda s: s.n_frames > 1)
+    for ok in tests:
+        hit = next((i for i, s in enumerate(series) if ok(s)), None)
+        if hit is not None:
+            return hit
+    return 0
 
 
 def combine(series: list[Series], name: str | None = None) -> Series:

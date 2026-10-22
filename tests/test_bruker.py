@@ -141,3 +141,27 @@ def test_a_scan_without_images_is_skipped(tmp_path):
     (tmp_path / "3" / "acqp").write_text("##END=\n")
     write_scan(tmp_path, 4, "SAX one", np.ones((8, 8, 1, 4), int))
     assert [s.number for s in bruker.scan_study(tmp_path)] == [4]
+
+
+def test_slices_that_do_not_step_along_their_normal_still_get_a_thickness(tmp_path):
+    """Positions that move across the slice plane instead of along its normal (seen in a public ParaVision 5.1
+    test set) gave a slice gap of 0, so every volume would be 0: use the distance between slice centres."""
+    data = np.ones((8, 6, 3, 2), int)
+    in_plane = np.array(ORIENT[:3])  # the read direction: within the slice plane
+    pos = [list(np.array([1.0, 2.0, 3.0]) + 1.5 * k * in_plane) for k in range(3)]
+    write_scan(tmp_path, 1, "cine", data, slope=1, groups=(("FG_CARDIAC_MOVIE",), ("FG_SLICE",)), positions=pos)
+    cine = bruker.load_cine(bruker.read_scan(tmp_path / "1"))
+    assert abs(cine.spacing[2] - 1.5) < 1e-6
+
+
+def test_spectroscopy_is_skipped_with_a_clear_reason(tmp_path):
+    write_scan(tmp_path, 1, "cine", np.ones((8, 6, 1, 4), int), slope=1)
+    write_scan(tmp_path, 2, "press", np.ones((8, 6, 1, 1), int), slope=1)
+    vp = tmp_path / "2" / "pdata" / "1" / "visu_pars"
+    text = vp.read_text().split("\n##$")
+    vp.write_text("\n##$".join(t for t in text if not t.startswith(("VisuCoreOrientation", "VisuCorePosition"))))
+    skipped = []
+    scans = bruker.scan_study(tmp_path, skipped=skipped)
+    assert [s.number for s in scans] == [1]
+    assert skipped == [("2", "parameters not understood (ValueError: not an image series (no slice geometry; "
+                              "spectroscopy, for example))")]

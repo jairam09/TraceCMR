@@ -33,6 +33,25 @@ def test_guess_kind():
     assert guess_kind("CINE 4CH") == "Long axis"
     assert guess_kind("LGE_PSIR") == "LGE"
     assert guess_kind("localizer") == "Other"
+    for name in ("SAX_S-0.0", "cine_sa_slice1", "cine SA3", "short axis stack"):
+        assert guess_kind(name) == "Short axis", name
+    assert guess_kind("LAX_S0.0 4chamber") == guess_kind("2ch cine") == "Long axis"
+    # whole words only: a saturation band, a sagittal scan or a template is not a short axis or LGE
+    for name in ("DTI_EPI_seg_30dir_sat", "T2_sagittal", "FLASH template", "Cine_brightblood_IG_FLASH_flc"):
+        assert guess_kind(name) == "Other", name
+
+
+def test_first_series_opened_is_a_cine_stack_whatever_its_name():
+    from tracecmr.app.study import Series, best_first_series
+
+    loc = Series("1 Localizer", "Other", "", n_slices=3, n_frames=1)
+    sat = Series("2 DTI sat", "Other", "", n_slices=5, n_frames=1)
+    cine = Series("3 Cine FLASH", "Other", "", n_slices=8, n_frames=16)
+    lax = Series("4 LAX cine", "Long axis", "", n_slices=1, n_frames=16)
+    sax = Series("5 SAX cine", "Short axis", "", n_slices=8, n_frames=16)
+    assert best_first_series([loc, sat, cine, lax, sax]) == 4  # a short-axis cine stack first
+    assert best_first_series([loc, sat, lax, cine]) == 3  # else any multi-slice cine, not the long axis
+    assert best_first_series([loc, sat]) == 0
 
 
 def test_scan_groups_series_and_combines_slices(tmp_path):

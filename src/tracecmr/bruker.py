@@ -163,6 +163,8 @@ def read_scan(folder: str | Path, proc: int = 1) -> PvScan:
         note = "uses the first of " + ", ".join(f"{n} {g[3:].lower()}" for n, g in other)
     if dim == 3 and len(size) == 3:  # a 3D volume: its third axis is the slices
         n_slices = size[2]
+    if "VisuCoreOrientation" not in v or "VisuCorePosition" not in v:
+        raise ValueError("not an image series (no slice geometry; spectroscopy, for example)")
     orient = np.array([float(x) for x in _list(v["VisuCoreOrientation"])]).reshape(-1, 3, 3)
     pos = np.array([float(x) for x in _list(v["VisuCorePosition"])]).reshape(-1, 3)
     if dim == 2:
@@ -285,6 +287,12 @@ def load_cine(scan: PvScan) -> PvCine:
     data = data[:, :, order]
     dist = dist[order]
     dz = float(np.median(np.abs(np.diff(dist)))) if len(dist) > 1 else scan.thickness_mm
+    if len(dist) > 1 and dz < 1e-3:
+        # slices that don't step along their own normal (seen in edited test data): a slice gap of 0 would make
+        # every volume 0, so use the distance between slice centres, else the slice thickness
+        steps = np.linalg.norm(np.diff(scan.positions[order], axis=0), axis=1) if len(scan.positions) == len(dist) \
+            else np.zeros(0)
+        dz = float(np.median(steps)) if len(steps) and np.median(steps) > 1e-3 else float(scan.thickness_mm)
     times = np.array(scan.frame_times_ms if scan.frame_times_ms else [np.nan] * scan.n_frames, float)
     return PvCine(data=data, spacing=(scan.pixel_mm[0], scan.pixel_mm[1], dz), times_ms=times,
                   slice_positions_mm=dist, subject_id=scan.name,
