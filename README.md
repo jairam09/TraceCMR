@@ -67,8 +67,10 @@ marked in the slice list. Details: [docs/models.md](docs/models.md).
 ## Feedback
 
 Questions, bug reports and scans that go wrong are all welcome: open a
-[GitHub issue](https://github.com/jairam09/TraceCMR/issues) or email jaikrishnanram10908@gmail.com. If you can share
-an anonymised scan that TraceCMR reads badly, that helps most.
+[GitHub issue](https://github.com/jairam09/TraceCMR/issues) or email tracecmr.support@gmail.com. In the app,
+Help → Report a problem saves what's needed to look into it (versions, the recent log, and what TraceCMR found in the
+scan folders you opened: scan parameters only, never images or animal names) and starts that email. If a scan
+doesn't open or reads badly, that report is the most useful thing you can send.
 
 ## Credits and citing
 

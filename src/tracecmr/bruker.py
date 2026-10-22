@@ -247,16 +247,21 @@ def is_study(folder: str | Path) -> bool:
         return False
 
 
-def scan_study(folder: str | Path) -> list[PvScan]:
-    """Every scan in a study folder that has images, in scan order (scans that can't be read are skipped)."""
+def scan_study(folder: str | Path, skipped: list | None = None) -> list[PvScan]:
+    """Every scan in a study folder that has images, in scan order (scans that can't be read are skipped; pass a
+    list as `skipped` to get (scan folder name, why) for each)."""
     out = []
     for d in sorted((d for d in Path(folder).iterdir() if d.is_dir() and d.name.isdigit()), key=lambda d: int(d.name)):
         procs = sorted(int(p.parent.name) for p in d.glob("pdata/*/2dseq") if p.parent.name.isdigit())
         if not procs:
+            if skipped is not None:
+                skipped.append((d.name, "no reconstructed images (no 2dseq file under pdata)"))
             continue
         try:
             out.append(read_scan(d, procs[0]))
-        except (ValueError, KeyError, IndexError):
+        except (ValueError, KeyError, IndexError) as e:
+            if skipped is not None:
+                skipped.append((d.name, f"parameters not understood ({type(e).__name__}: {e})"))
             continue
     return out
 

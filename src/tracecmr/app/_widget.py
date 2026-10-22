@@ -1410,13 +1410,23 @@ class TraceCMRWidget(QWidget):
         from .. import bruker
         from .study import scan_bruker_study, scan_dicom_folder
 
+        from . import openlog
+
         folder = Path(folder)
+        try:
+            inside = sorted(folder.iterdir())
+            subdirs = sum(1 for p in inside if p.is_dir())
+            openlog.note(f"opening a scan folder: {subdirs} subfolders, {len(inside) - subdirs} files; ParaVision "
+                         f"study: {bruker.is_study(folder)}")
+        except OSError as e:
+            openlog.note(f"opening a scan folder that can't be listed: {openlog.error(e)}")
         if folder.name.isdigit() and bruker.is_study(folder.parent):
             folder = folder.parent  # picked one scan of a ParaVision study: open the whole study
         if bruker.is_study(folder):
             found = scan_bruker_study(folder)
             if not found:
-                self.series_panel.lbl.setText("This ParaVision study has no image scans TraceCMR can open.")
+                self.series_panel.lbl.setText("This ParaVision study has no image scans TraceCMR can open. "
+                                              "Help → Report a problem saves what it found, for us to look at.")
                 return
             self._show_study(folder, found)
             return
@@ -1434,7 +1444,8 @@ class TraceCMRWidget(QWidget):
                 if len(above) > 1:
                     found, folder = above, parent
         if not found:
-            self.series_panel.lbl.setText("No DICOM images or ParaVision scans found. Choose one mouse's folder.")
+            self.series_panel.lbl.setText("No DICOM images or ParaVision scans found. Choose one mouse's folder. "
+                                          "If this is one, Help → Report a problem saves what TraceCMR saw there.")
             return
         self._show_study(folder, found)
 
@@ -1468,7 +1479,15 @@ class TraceCMRWidget(QWidget):
         try:
             session = ser.load()
         except Exception as e:
-            self.series_panel.lbl.setText(f"⚠ Could not open {ser.name}: {e}")
+            import traceback
+
+            from . import openlog
+
+            openlog.note(f"could not open a {ser.kind.lower()} series ({ser.n_slices} slice(s) x {ser.n_frames} "
+                         f"frame(s)): {openlog.error(e)}")
+            traceback.print_exc()  # into the log
+            self.series_panel.lbl.setText(f"⚠ Could not open {ser.name}: {e}. Help → Report a problem saves the "
+                                          f"details for us.")
             return
         msg = self._load_saved(session) if first_time else ""
         self.current_series = i
@@ -3417,6 +3436,7 @@ class TraceCMRWidget(QWidget):
     def about_text(self) -> tuple[str, str]:
         from .. import __version__
         from .. import autocontour as ac
+        from .branding import SUPPORT_EMAIL
 
         head = f"TraceCMR {__version__}: free, open-source analysis of mouse cardiac MRI (MIT licence)."
         body = ("Auto LV uses the mouse heart segmentation model published by Shah, Stuckey, Steeden et al. at "
@@ -3424,7 +3444,7 @@ class TraceCMRWidget(QWidget):
                 "use Auto LV, please cite their paper:\n\n" + ac.UCL_CITATION + "\n\nModel, code and data: "
                 + ac.UCL_SOURCE + "\n\nThe UCL team's open mouse dataset was also used to test TraceCMR. "
                 "TraceCMR is built on napari and uses the Inter typeface (SIL Open Font Licence).\n\n"
-                "https://github.com/jairam09/TraceCMR")
+                "https://github.com/jairam09/TraceCMR\nQuestions and problems: " + SUPPORT_EMAIL)
         return head, body
 
     def show_about(self) -> None:

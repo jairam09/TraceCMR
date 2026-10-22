@@ -1,5 +1,6 @@
-"""Help → Report a problem: one file with what's needed to fix a bug (versions, system, the end of the log),
-copied to the clipboard and, when a support address is set, an email ready to send."""
+"""Help → Report a problem: one file with what's needed to fix a bug (versions, system, what was found in the scan
+folders opened this session (openlog.py), the end of the log), copied to the clipboard, and an email to the support
+address ready to send."""
 
 from __future__ import annotations
 
@@ -41,6 +42,11 @@ def diagnostics(log_lines: int = 200) -> str:
              f"System: {platform.platform()}", f"Python: {sys.version.split()[0]}",
              f"napari {version('napari')} · numpy {version('numpy')} · {API_NAME} (Qt {QT_VERSION})",
              f"Models: {models}", ""]
+    from . import openlog
+
+    found = openlog.notes()
+    if found:  # what was in the scan folders opened this session, and what was skipped (no pixels, no names)
+        lines += ["--- scan folders opened this session ---", *found, ""]
     log = log_path()
     if log.exists():
         tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-log_lines:]

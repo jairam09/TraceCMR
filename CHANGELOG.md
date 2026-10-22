@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Help → Report a problem now opens an email to tracecmr.support@gmail.com, and the report says what TraceCMR found in the scan folders you opened: each scan's or series' layout and parameters, and anything it skipped and why (never images, and never animal, study or patient names). If your scans don't open, that report is what we need to fix it.
+- When a folder holds no scans TraceCMR can open, or a scan fails to open, it says where to get that report. Help → About shows the support address.
 - Editing is quicker. Letting go of a dot used to freeze the window for a moment while every result was redone (about 0.7 s on a slow computer); now about 0.1–0.25 s, and never while you're still holding the mouse. The Wall tab's bullseyes catch up once you pause, if that tab isn't open, and the double-check flags only re-check the slices that changed.
 - Dragging a dot redraws about twice as fast, and the rotation slider about a third faster per step, with exactly the same picture.
 

@@ -93,16 +93,30 @@ def scan_dicom_folder(folder: str | Path) -> list[Series]:
     """Group the DICOM files under a folder into series (headers only; pixels are read on opening)."""
     import pydicom
 
+    from . import openlog
+
     groups: dict[str, list] = defaultdict(list)
-    for p in sorted(x for x in Path(folder).rglob("*") if x.is_file()):
+    unread: dict[str, list[str]] = defaultdict(list)  # why a file wasn't read -> example file names
+    no_pos: list = []
+    files = sorted(x for x in Path(folder).rglob("*") if x.is_file())
+    for p in files:
         try:
             ds = pydicom.dcmread(str(p), stop_before_pixels=True)
-        except Exception:
+        except Exception as e:
+            unread[type(e).__name__].append(p.name)
             continue
         if not hasattr(ds, "ImagePositionPatient") and "PerFrameFunctionalGroupsSequence" not in ds:
+            no_pos.append((p, ds))
             continue  # not an image (DICOMDIR, reports, ...)
         key = str(getattr(ds, "SeriesInstanceUID", "") or p.parent)  # no UID: one series per folder
         groups[key].append((p, ds))
+    openlog.note(f"DICOM folder: {len(files)} files, {sum(map(len, groups.values()))} images in {len(groups)} "
+                 f"series, {sum(map(len, unread.values()))} not read as DICOM, {len(no_pos)} without an image "
+                 f"position")
+    for why, names in unread.items():
+        openlog.note(f"  not DICOM ({why}): {len(names)} file(s): {openlog.kinds_of_files(names)}")
+    for p, ds in no_pos[:3]:  # e.g. a DICOMDIR, or images missing their position (which can't be stacked)
+        openlog.note(f"  skipped, no image position: {openlog.dicom_header(ds)}")
     out = []
     for uid, items in groups.items():
         ds0 = items[0][1]
@@ -139,12 +153,15 @@ def scan_dicom_folder(folder: str | Path) -> list[Series]:
             pos = float(np.mean(dists))
         series = Series(name=name, kind=guess_kind(desc), source=str(folder), n_slices=n_slices,
                         n_frames=n_frames, paths=[p for p, _ in items], position_mm=pos, geometry=geom)
+        openlog.note(f"  series {num if num is not None else '?'} ({guess_kind(desc)}): {len(items)} file(s) -> "
+                     f"{n_slices} slice(s) x {n_frames} frame(s); {openlog.dicom_header(ds0)}")
         try:  # a preview from one file in the middle of the series
             mid = pydicom.dcmread(str(items[len(items) // 2][0]))
             arr = mid.pixel_array
             series.thumb = np.asarray(arr[0] if arr.ndim == 3 else arr, dtype=np.float32).T
-        except Exception:
-            pass
+        except Exception as e:  # e.g. a compressed transfer syntax with no decoder installed
+            openlog.note(f"  series {num if num is not None else '?'}: no preview, pixels could not be read "
+                         f"({openlog.error(e)})")
         out.append(series)
     out.sort(key=lambda s: (KINDS.index(s.kind), s.name))
     return out
@@ -155,10 +172,19 @@ def scan_bruker_study(folder: str | Path) -> list[Series]:
     except a small preview of each)."""
     from .. import bruker
 
+    from . import openlog
+
     out = []
-    for sc in bruker.scan_study(folder):
+    skipped: list = []
+    scans = bruker.scan_study(folder, skipped=skipped)
+    openlog.note(f"ParaVision study: {len(scans) + len(skipped)} scan folder(s) with parameters or images")
+    for number, why in skipped:
+        openlog.note(f"  E{number}: skipped, {openlog.scrub(why)}")
+    for sc in scans:
         if sc.n_frames < 1 or sc.dim != 2:
+            openlog.note(f"  skipped (TraceCMR reads 2D cines): {openlog.bruker_scan(sc)}")
             continue
+        openlog.note(f"  listed: {openlog.bruker_scan(sc)}")
         name = f"E{sc.number} {sc.name}"
         s = Series(name=name, kind=guess_kind(f"{sc.name} {sc.protocol}"), source=str(folder),
                    n_slices=sc.n_slices, n_frames=sc.n_frames, position_mm=float(np.mean(sc.slice_distances())),
@@ -166,8 +192,8 @@ def scan_bruker_study(folder: str | Path) -> list[Series]:
         try:
             data = bruker.load_scan(sc)
             s.thumb = data[:, :, data.shape[2] // 2, 0]
-        except Exception:
-            pass
+        except Exception as e:
+            openlog.note(f"  E{sc.number}: no preview, its images could not be read ({openlog.error(e)})")
         out.append(s)
     out.sort(key=lambda s: (KINDS.index(s.kind), s.pv.number))
     return out
