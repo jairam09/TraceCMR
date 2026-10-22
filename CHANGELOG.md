@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.8] - 2026-10-22
 
 - Help → Report a problem now opens an email to tracecmr.support@gmail.com, and the report says what TraceCMR found in the scan folders you opened: each scan's or series' layout and parameters, and anything it skipped and why (never images, and never animal, study or patient names). If your scans don't open, that report is what we need to fix it.
 - When a folder holds no scans TraceCMR can open, or a scan fails to open, it says where to get that report. Help → About shows the support address.
