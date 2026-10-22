@@ -1,0 +1,45 @@
+{
+ "python": "/Users/runner/TraceCMR/bin/python",
+ "tta": true,
+ "steps": [
+  "Downloading the model: UCL model (19 MB)",
+  "Checking UCL model (19 MB)",
+  "Downloading the model: UCL-LICENSE.txt",
+  "Model ready",
+  "Installing ONNX Runtime (about 20 MB)",
+  "Installing ONNX Runtime: getting onnxruntime<2,>=1.20",
+  "Installing ONNX Runtime: getting onnxruntime-1.31.0-cp312-cp312-macosx_14_0_arm64.whl",
+  "Installing ONNX Runtime: unpacking",
+  "Checking that the model runs",
+  "Auto-contouring is ready"
+ ],
+ "out_of_the_box": {
+  "backend": "onnx",
+  "model": "/Users/runner/TraceCMR/models/ucl_seg459.onnx",
+  "bundled_model_present": true,
+  "licence_beside_it": true
+ },
+ "bundled_run": {
+  "seconds": 6.1,
+  "slices": 8,
+  "dice_blood": 0.921,
+  "dice_myo": 0.873
+ },
+ "runtime_removed": true,
+ "needs_setup_now": true,
+ "setup_seconds": 4.7,
+ "app_imports_after_setup": true,
+ "numpy_h5py_onnxruntime": "2.5.4 3.14.0 1.31.0",
+ "after_setup": {
+  "backend": "onnx",
+  "model": "/Users/runner/.tracecmr/models/ucl/ucl_seg459.onnx"
+ },
+ "setup_run": {
+  "seconds": 4.4,
+  "slices": 8,
+  "dice_blood": 0.921,
+  "dice_myo": 0.873
+ },
+ "same_as_bundled": true,
+ "ok": true
+}

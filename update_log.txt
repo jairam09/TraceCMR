@@ -1,0 +1,56 @@
+2026-10-22 19:18:53  checked https://github.com/jairam09/TraceCMR/releases/latest/download/latest.json: latest 0.3.7, this copy 0.3.8
+2026-10-22 19:20:38  checked file:///Users/runner/work/TraceCMR/TraceCMR/patches_gui/latest-0.3.9.json: latest 0.3.9, this copy 0.3.8
+2026-10-22 19:20:40  downloaded file:///Users/runner/work/TraceCMR/TraceCMR/patches_gui/tracecmr-0.3.9-py3-none-any.whl -> /Users/runner/.tracecmr/updates/tracecmr-0.3.9-py3-none-any.whl
+2026-10-22 19:20:40  scheduled 0.3.9 (relaunch=True)
+2026-10-22 19:20:41  starting helper: ['/Users/runner/TraceCMR/bin/python', '-I', '/Users/runner/.tracecmr/updates/apply_update.py', '/Users/runner/.tracecmr/updates/apply_update.json'] (from 0.3.8 to 0.3.9, relaunch=True)
+2026-10-22 19:20:41  [helper] update 0.3.8 -> 0.3.9 with /Users/runner/.tracecmr/updates/tracecmr-0.3.9-py3-none-any.whl
+2026-10-22 19:20:42  [helper] copied 65 files of the installed version aside
+2026-10-22 19:20:44  [helper] pip exit 0: Processing ./tracecmr-0.3.9-py3-none-any.whl
+Installing collected packages: tracecmr
+  Attempting uninstall: tracecmr
+    Found existing installation: tracecmr 0.3.8
+    Uninstalling tracecmr-0.3.8:
+      Successfully uninstalled tracecmr-0.3.8
+Successfully installed tracecmr-0.3.9
+2026-10-22 19:20:48  [helper] check: ok=True VERSION 0.3.9 0.3.9
+2026-10-22 19:20:48  [helper] reopened TraceCMR: ['open', '/Users/runner/Applications/TraceCMR.app']
+2026-10-22 19:20:48  [helper] done
+2026-10-22 19:21:15  checked file:///Users/runner/work/TraceCMR/TraceCMR/patches_gui/latest-0.3.9.json: latest 0.3.9, this copy 0.3.9
+2026-10-22 19:21:28  checked file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.4.0.json: latest 0.4.0, this copy 0.3.9
+2026-10-22 19:21:28  checked file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.3.98.json: latest 0.3.98, this copy 0.3.9
+2026-10-22 19:21:28  downloaded file:///Users/runner/work/TraceCMR/TraceCMR/patches/tracecmr-0.3.98-py3-none-any.whl -> /Users/runner/.tracecmr/updates/tracecmr-0.3.98-py3-none-any.whl
+2026-10-22 19:21:28  starting helper: ['/Users/runner/TraceCMR/bin/python', '-I', '/Users/runner/.tracecmr/updates/apply_update.py', '/Users/runner/.tracecmr/updates/apply_update.json'] (from 0.3.9 to 0.3.98, relaunch=True)
+2026-10-22 19:21:28  [helper] update 0.3.9 -> 0.3.98 with /Users/runner/.tracecmr/updates/tracecmr-0.3.98-py3-none-any.whl
+2026-10-22 19:21:33  [helper] copied 66 files of the installed version aside
+2026-10-22 19:21:34  [helper] pip exit 0: Processing ./tracecmr-0.3.98-py3-none-any.whl
+Installing collected packages: tracecmr
+  Attempting uninstall: tracecmr
+    Found existing installation: tracecmr 0.3.9
+    Uninstalling tracecmr-0.3.9:
+      Successfully uninstalled tracecmr-0.3.9
+Successfully installed tracecmr-0.3.98
+2026-10-22 19:21:34  [helper] check: ok=False Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/Users/runner/TraceCMR/lib/python3.12/site-packages/tracecmr/app/__init__.py", line 2, in <module>
+    raise ImportError("test patch: deliberately broken")
+ImportError: test patch: deliberately broken
+2026-10-22 19:21:34  [helper] FAILED: RuntimeError('the new version didn\'t start: Traceback (most recent call last):\n  File "<string>", line 1, in <module>\n  File "/Users/runner/TraceCMR/lib/python3.12/site-packages/tracecmr/app/__init__.py", line 2, in <module>\n    raise ImportError("test patch: deliberately broken")\nImportError: test patch: deliberately broken')
+2026-10-22 19:21:34  [helper] put back 66 files of the previous version
+2026-10-22 19:21:36  [helper] after putting the previous version back: ok=True VERSION 0.3.9 0.3.9
+2026-10-22 19:21:36  [helper] reopened TraceCMR: ['/Users/runner/TraceCMR/bin/python', '-c', "open(r'/Users/runner/.tracecmr/updates/reopened-0.3.98.txt', 'w').write('reopened')"]
+2026-10-22 19:21:36  [helper] done
+2026-10-22 19:21:38  checked file:///Users/runner/work/TraceCMR/TraceCMR/patches/latest-0.3.99.json: latest 0.3.99, this copy 0.3.9
+2026-10-22 19:21:38  downloaded file:///Users/runner/work/TraceCMR/TraceCMR/patches/tracecmr-0.3.99-py3-none-any.whl -> /Users/runner/.tracecmr/updates/tracecmr-0.3.99-py3-none-any.whl
+2026-10-22 19:21:38  starting helper: ['/Users/runner/TraceCMR/bin/python', '-I', '/Users/runner/.tracecmr/updates/apply_update.py', '/Users/runner/.tracecmr/updates/apply_update.json'] (from 0.3.9 to 0.3.99, relaunch=True)
+2026-10-22 19:21:38  [helper] update 0.3.9 -> 0.3.99 with /Users/runner/.tracecmr/updates/tracecmr-0.3.99-py3-none-any.whl
+2026-10-22 19:21:43  [helper] copied 66 files of the installed version aside
+2026-10-22 19:21:43  [helper] pip exit 0: Processing ./tracecmr-0.3.99-py3-none-any.whl
+Installing collected packages: tracecmr
+  Attempting uninstall: tracecmr
+    Found existing installation: tracecmr 0.3.9
+    Uninstalling tracecmr-0.3.9:
+      Successfully uninstalled tracecmr-0.3.9
+Successfully installed tracecmr-0.3.99
+2026-10-22 19:21:45  [helper] check: ok=True VERSION 0.3.99 0.3.99
+2026-10-22 19:21:45  [helper] reopened TraceCMR: ['/Users/runner/TraceCMR/bin/python', '-c', "open(r'/Users/runner/.tracecmr/updates/reopened-0.3.99.txt', 'w').write('reopened')"]
+2026-10-22 19:21:45  [helper] done
