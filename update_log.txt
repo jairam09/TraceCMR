@@ -1,0 +1,42 @@
+2026-10-22 19:18:53  checked file:///D:/a/TraceCMR/TraceCMR/patches/latest-0.4.0.json: latest 0.4.0, this copy 0.3.8
+2026-10-22 19:18:53  checked file:///D:/a/TraceCMR/TraceCMR/patches/latest-0.3.98.json: latest 0.3.98, this copy 0.3.8
+2026-10-22 19:18:53  downloaded file:///D:/a/TraceCMR/TraceCMR/patches/tracecmr-0.3.98-py3-none-any.whl -> C:\Users\runneradmin\.tracecmr\updates\tracecmr-0.3.98-py3-none-any.whl
+2026-10-22 19:18:53  starting helper: ['C:\\Users\\runneradmin\\TraceCMR\\python.exe', '-I', 'C:\\Users\\runneradmin\\.tracecmr\\updates\\apply_update.py', 'C:\\Users\\runneradmin\\.tracecmr\\updates\\apply_update.json'] (from 0.3.8 to 0.3.98, relaunch=True)
+2026-10-22 19:18:53  [helper] update 0.3.8 -> 0.3.98 with C:\Users\runneradmin\.tracecmr\updates\tracecmr-0.3.98-py3-none-any.whl
+2026-10-22 19:18:58  [helper] copied 65 files of the installed version aside
+2026-10-22 19:18:59  [helper] pip exit 0: Processing .\tracecmr-0.3.98-py3-none-any.whl
+Installing collected packages: tracecmr
+  Attempting uninstall: tracecmr
+    Found existing installation: tracecmr 0.3.8
+    Uninstalling tracecmr-0.3.8:
+      Successfully uninstalled tracecmr-0.3.8
+Successfully installed tracecmr-0.3.98
+  WARNING: The script tracecmr.exe is installed in 'C:\Users\runneradmin\TraceCMR\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+2026-10-22 19:18:59  [helper] check: ok=False Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\tracecmr\app\__init__.py", line 2, in <module>
+    raise ImportError("test patch: deliberately broken")
+ImportError: test patch: deliberately broken
+2026-10-22 19:18:59  [helper] FAILED: RuntimeError('the new version didn\'t start: Traceback (most recent call last):\n  File "<string>", line 1, in <module>\n  File "C:\\Users\\runneradmin\\TraceCMR\\Lib\\site-packages\\tracecmr\\app\\__init__.py", line 2, in <module>\n    raise ImportError("test patch: deliberately broken")\nImportError: test patch: deliberately broken')
+2026-10-22 19:18:59  [helper] put back 65 files of the previous version
+2026-10-22 19:19:01  [helper] after putting the previous version back: ok=True VERSION 0.3.8 0.3.8
+2026-10-22 19:19:01  [helper] reopened TraceCMR: ['C:\\Users\\runneradmin\\TraceCMR\\python.exe', '-c', "open(r'C:\\Users\\runneradmin\\.tracecmr\\updates\\reopened-0.3.98.txt', 'w').write('reopened')"]
+2026-10-22 19:19:01  [helper] done
+2026-10-22 19:19:02  checked file:///D:/a/TraceCMR/TraceCMR/patches/latest-0.3.99.json: latest 0.3.99, this copy 0.3.8
+2026-10-22 19:19:02  downloaded file:///D:/a/TraceCMR/TraceCMR/patches/tracecmr-0.3.99-py3-none-any.whl -> C:\Users\runneradmin\.tracecmr\updates\tracecmr-0.3.99-py3-none-any.whl
+2026-10-22 19:19:02  starting helper: ['C:\\Users\\runneradmin\\TraceCMR\\python.exe', '-I', 'C:\\Users\\runneradmin\\.tracecmr\\updates\\apply_update.py', 'C:\\Users\\runneradmin\\.tracecmr\\updates\\apply_update.json'] (from 0.3.8 to 0.3.99, relaunch=True)
+2026-10-22 19:19:02  [helper] update 0.3.8 -> 0.3.99 with C:\Users\runneradmin\.tracecmr\updates\tracecmr-0.3.99-py3-none-any.whl
+2026-10-22 19:19:07  [helper] copied 65 files of the installed version aside
+2026-10-22 19:19:08  [helper] pip exit 0: Processing .\tracecmr-0.3.99-py3-none-any.whl
+Installing collected packages: tracecmr
+  Attempting uninstall: tracecmr
+    Found existing installation: tracecmr 0.3.8
+    Uninstalling tracecmr-0.3.8:
+      Successfully uninstalled tracecmr-0.3.8
+Successfully installed tracecmr-0.3.99
+  WARNING: The script tracecmr.exe is installed in 'C:\Users\runneradmin\TraceCMR\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+2026-10-22 19:19:09  [helper] check: ok=True VERSION 0.3.99 0.3.99
+2026-10-22 19:19:09  [helper] reopened TraceCMR: ['C:\\Users\\runneradmin\\TraceCMR\\python.exe', '-c', "open(r'C:\\Users\\runneradmin\\.tracecmr\\updates\\reopened-0.3.99.txt', 'w').write('reopened')"]
+2026-10-22 19:19:09  [helper] done
