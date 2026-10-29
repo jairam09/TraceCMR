@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "start": "0.3.10",
+  "steps": [
+    {
+      "name": "installed_copy_can_patch_itself",
+      "ok": true,
+      "note": {
+        "version": "0.3.10",
+        "site": "/Users/runner/TraceCMR/lib/python3.12/site-packages",
+        "python": "/Users/runner/TraceCMR/bin/python",
+        "reopen_with": [
+          [
+            "open",
+            "/Users/runner/Applications/TraceCMR.app"
+          ],
+          "/Users/runner/Documents"
+        ]
+      },
+      "seconds": 0.0
+    },
+    {
+      "name": "needs_new_packages_is_refused",
+      "ok": true,
+      "note": {
+        "offered": "0.4.0",
+        "refused_because": [
+          "numpy>=99 (have 2.5.4)"
+        ]
+      },
+      "seconds": 0.1
+    },
+    {
+      "name": "broken_patch_is_rolled_back",
+      "ok": true,
+      "note": {
+        "version": "0.3.98",
+        "result": {
+          "from": "0.3.10",
+          "to": "0.3.98",
+          "ok": false,
+          "rolled_back": true,
+          "message": "The update to 0.3.98 couldn't be installed, so TraceCMR is still 0.3.10. Nothing else changed.",
+          "time": "2026-10-29 19:28:36",
+          "detail": "the new version didn't start: Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/Users/runner/TraceCMR/lib/python3.12/site-packages/tracecmr/app/__init__.py\", line 2, in <module>\n    raise ImportError(\"test patch: deliberately broken\")\nImportError: test patch: deliberately broken",
+          "restored_ok": true
+        },
+        "helper_exit": 1,
+        "reopened": true,
+        "seconds": 10.3,
+        "after": "0.3.10"
+      },
+      "seconds": 13.2
+    },
+    {
+      "name": "good_patch_installs",
+      "ok": true,
+      "note": {
+        "version": "0.3.99",
+        "result": {
+          "from": "0.3.10",
+          "to": "0.3.99",
+          "ok": true,
+          "rolled_back": false,
+          "message": "Updated to TraceCMR 0.3.99.",
+          "time": "2026-10-29 19:28:49",
+          "notes": []
+        },
+        "helper_exit": 0,
+        "reopened": true,
+        "seconds": 9.0,
+        "after": "0.3.99"
+      },
+      "seconds": 12.1
+    },
+    {
+      "name": "next_start_reads_the_result_once",
+      "ok": true,
+      "note": "Updated to TraceCMR 0.3.99.",
+      "seconds": 0.0
+    }
+  ]
+}
