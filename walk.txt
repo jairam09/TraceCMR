@@ -1,0 +1,67 @@
+Traceback (most recent call last):
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\latebind.py", line 43, in __call__
+    return self._finalCall( *args, **named )
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'NoneType' object is not callable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\a\TraceCMR\TraceCMR\scripts\walkthrough.py", line 326, in <module>
+    main()
+  File "D:\a\TraceCMR\TraceCMR\scripts\walkthrough.py", line 322, in main
+    launch.main([])
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\tracecmr\app\launch.py", line 88, in main
+    viewer = napari.Viewer(title="TraceCMR", show=False)  # built hidden: no half-drawn window flashing up
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\viewer.py", line 69, in __init__
+    self._window = Window(  # pyrefly: ignore [bad-assignment]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\_qt\qt_main_window.py", line 739, in __init__
+    self._qt_window = _QtMainWindow(
+                      ^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\_qt\qt_main_window.py", line 144, in __init__
+    self._qt_viewer: QtViewer = QtViewer(
+                                ^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\_qt\qt_viewer.py", line 197, in __init__
+    self.canvas: VispyCanvas = canvas_class(
+                               ^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\_vispy\canvas.py", line 231, in __init__
+    self.max_texture_sizes = get_max_texture_sizes()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\napari\_vispy\utils\gl.py", line 64, in get_max_texture_sizes
+    max_size_2d = gl.glGetParameter(gl.GL_MAX_TEXTURE_SIZE)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\vispy\gloo\gl\_pyopengl2.py", line 146, in glGetParameter
+    return GL.glGetIntegerv(pname)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\latebind.py", line 47, in __call__
+    return self._finalCall( *args, **named )
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\wrapper.py", line 771, in wrapperCall
+    raise err
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\wrapper.py", line 764, in wrapperCall
+    result = wrappedOperation(*cArguments)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\platform\baseplatform.py", line 487, in __call__
+    return self(*args, **named)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\runneradmin\TraceCMR\Lib\site-packages\OpenGL\error.py", line 230, in glCheckError
+    raise self._errorClass(
+OpenGL.error.GLError: GLError(
+	err = 1282,
+	description = b'invalid operation',
+	baseOperation = glGetIntegerv,
+	pyArgs = (
+		GL_MAX_TEXTURE_SIZE,
+		<object object at 0x000001E845BF5D80>,
+	),
+	cArgs = (
+		GL_MAX_TEXTURE_SIZE,
+		array([0], dtype=int32),
+	),
+	cArguments = (
+		GL_MAX_TEXTURE_SIZE,
+		array([0], dtype=int32),
+	)
+)
