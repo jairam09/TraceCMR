@@ -11,7 +11,7 @@
 # src/tracecmr/ucl_model.json (scripts/fetch_ucl_model.py); post_install moves them into <TraceCMR>/models.
 
 name: TraceCMR
-version: 0.3.8
+version: 0.3.9
 company: TraceCMR
 
 installer_type: exe  # [win]

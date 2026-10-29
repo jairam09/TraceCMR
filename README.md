@@ -17,7 +17,7 @@ computer; scans are never uploaded.
   <br><sub>A mouse from UCL's open dataset, contoured by Auto LV on every frame, with ED and ES found from the volume curve.</sub>
 </p>
 
-> **Beta (v0.3.8).** Used so far on UCL's open dataset and on a first Bruker scan from an outside facility.
+> **Beta (v0.3.9).** Used so far on UCL's open dataset and on a first Bruker scan from an outside facility.
 > The numbers are only as good as the contours: look at every slice before you trust a result. Not yet
 > validated for publication-grade research; we'd love to hear how it does on your scans.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.9] - 2026-10-29
 
 - Checked against public ParaVision example data from two more software versions (ParaVision 5.1 from 2011, and 360 V3.6): every 2D scan opens, and the images read straight from the scanner's files match Bruker's own NIfTI and DICOM exports exactly.
 - The first scan opened in a study is a cine stack, however the lab named its scans; before, a scan whose name merely contained "sa" (a "sat" saturation band, "sagittal") could be taken for the short axis.
